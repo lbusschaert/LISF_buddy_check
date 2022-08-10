@@ -101,6 +101,13 @@ contains
        allocate(LIS_irrig_state(LIS_rc%nnest))
        allocate(LIS_irrig_struc(LIS_rc%nnest))
 
+     ! Use NEW method LB WIP
+       LIS_rc%NEW_option = 0
+       call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%NEW_option,&
+            label="NEW option:", default=0, rc=rc)
+       write(LIS_logunit,*) "[INFO] NEW option:  ",&
+                             LIS_rc%NEW_option
+
      ! Frequency with which irrigation field is written out:
        call ESMF_ConfigGetAttribute(LIS_config,time,&
             label="Irrigation output interval:",rc=rc)

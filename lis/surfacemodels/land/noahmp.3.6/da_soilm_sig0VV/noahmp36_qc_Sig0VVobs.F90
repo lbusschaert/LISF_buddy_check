@@ -39,7 +39,7 @@ subroutine noahmp36_qc_Sig0VVobs(n,k,OBS_State)
 !  This subroutine performs any model-based QC of the observation 
 !  prior to data assimilation. Here the backscatter observations
 !  are flagged when LSM indicates that (1) rain is falling (2)
-!  soil is frozen or (3) ground is fully or partially covered 
+!  soil is frozen or (3) ground is fully or partially covered
 !  
 !  The arguments are: 
 !  \begin{description}

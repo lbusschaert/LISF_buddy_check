@@ -39,6 +39,7 @@ module enkf_Mod
   use LIS_fileIOMod
   use LIS_historyMod
   use LIS_timeMgrMod
+  use NoahMP36_lsmMod, only : NOAHMP36_struc ! LB WIP
 #if (defined USE_NETCDF3 || defined USE_NETCDF4)
   use netcdf
 #endif
@@ -248,6 +249,10 @@ contains
     real                              :: dx,dy,xcompact,ycompact
     real,         allocatable         :: lons(:), lats(:)
     real,         allocatable         :: state_lat(:), state_lon(:)
+    
+!-----------------LB WIP----------------------------
+    real                              :: Dinnov
+    real, parameter                   :: innov_thresh4irr = 4 ! LB To define
 
 
 !----------------------------------------------------------------------------
@@ -442,8 +447,21 @@ contains
                 enkf_struc(n,k)%innov(i) = LIS_rc%udef
                 enkf_struc(n,k)%forecast_var(i) = LIS_rc%udef
              endif
+             ! LB WIP: store innov in NoahMP structure (for t0 and t1)
+             do v=1,LIS_rc%nensem(n)
+                NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt0 = &
+                                        NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt1
+                NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt1 = &
+                                        enkf_struc(n,k)%innov(i)
+                Dinnov = NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt1 &
+                                - NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt0
+                if((Dinnov.ge.innov_thresh4irr).and.(Dinnov.le.10)) then
+                   NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered = .true.
+                endif
+             enddo
           enddo
        endif
+
 !----------------------------------------------------------------------------
 ! Updating State vector and increments state
 !----------------------------------------------------------------------------

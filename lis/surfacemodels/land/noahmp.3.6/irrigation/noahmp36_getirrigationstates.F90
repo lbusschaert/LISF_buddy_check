@@ -21,7 +21,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
   use LIS_coreMod
   use LIS_logMod
   use NoahMP36_lsmMod
-  use MODULE_SF_NOAHMPLSM_36, only: MAXSMC, REFSMC, WLTSMC
+  use MODULE_SF_NOAHMPLSM_36, only: MAXSMC, REFSMC, WLTSMC, DVEG
   use LIS_vegDataMod, only: LIS_read_shdmin, LIS_read_shdmax
 ! use MODULE_SF_NOAHMPLSM_36, only: SMCMAX, PSISAT, DKSAT, BEXP
 
@@ -67,6 +67,9 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 ! Aug 2022: Louise Busschaert; update irrigation using ensemble mean when runing
 !                              with perturbation bias correction option (based
 !                              on Wanshu Nie's implementation in NoahMP4).
+!
+! Aug 2022: Louise Busschaert; new option for irrigation WIP
+
 !EOP
   implicit none
   ! Sprinkler parameters
@@ -125,6 +128,9 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
   real                 :: smc_avg(nsoil)
   real                 :: lai_avg
 
+!-------------------------LB WIP for new option----------------------------------
+  real                 :: SM_thresh
+
   call ESMF_StateGet(irrigState, "Irrigation rate",irrigRateField,rc=rc)
   call LIS_verify(rc,'ESMF_StateGet failed for Irrigation rate')
   call ESMF_FieldGet(irrigRateField, localDE=0,farrayPtr=irrigRate,rc=rc)
@@ -177,6 +183,16 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 
   if(LIS_rc%pert_bias_corr.eq.0) then
       do t=1,LIS_rc%npatch(n,LIS_rc%lsm_index)
+
+       ! LB: change SM_threshold dpding on innov (WIP)
+         SM_thresh = LIS_rc%irrigation_thresh
+         if (LIS_rc%NEW_option.eq.1) then
+             if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
+                SM_thresh = 0
+             else
+                SM_thresh = 2 ! unrealistic but high
+             end if
+         end if
 
          timestep = NOAHMP36_struc(n)%dt
 
@@ -355,7 +371,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                              !     Get the root zone moisture availability to the plant
                              !---------------------------------------------------------------
                                  ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)
-                                 if(ma.le.LIS_rc%irrigation_thresh) then
+                                 if(ma.le.SM_thresh) then
                                     do k=1,lroot
                                        water(k) = &
                                             (smcref-NOAHMP36_struc(n)%noahmp36(t)%smc(k))*&
@@ -425,7 +441,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
     !                            ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)   ! Original
                                 ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)/IrrigScale(t) ! BZ added IrrigScale
 
-                                if( ma .le. LIS_rc%irrigation_thresh ) then
+                                if( ma .le. SM_thresh ) then
                                   do l = 1, LIS_rc%irrigation_mxsoildpth
                                      if( l == 1 ) then
                                        twater = (SMCMAX - NOAHMP36_struc(n)%noahmp36(t)%smc(l))*sldpth(l)*1000.0
@@ -492,7 +508,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 
         enddo
 
-  elseif LIS_rc%pert_bias_corr.eq.1) then
+  elseif (LIS_rc%pert_bias_corr.eq.1) then
       do i=1,LIS_rc%npatch(n,LIS_rc%lsm_index)/LIS_rc%nensem(n)
 
          sfctemp_avg = 0.
@@ -526,6 +542,16 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
          do m=1,LIS_rc%nensem(n)
 
              t=(i-1)*LIS_rc%nensem(n)+m
+
+            ! LB: change SM_threshold dpding on innov (WIP)
+              SM_thresh = LIS_rc%irrigation_thresh
+              if (LIS_rc%NEW_option.eq.1) then
+                  if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
+                     SM_thresh = 0
+                  else
+                     SM_thresh = 2 ! unrealistic but high
+                  end if
+              end if
 
 
              ! Adjust bounds by timestep to account for the fact that LIS_rc%hr, etc.
@@ -708,7 +734,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                                   !     Get the root zone moisture availability to the plant
                                   !---------------------------------------------------------------
                                      ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)
-                                     if(ma.le.LIS_rc%irrigation_thresh) then
+                                     if(ma.le.SM_thresh) then
                                         do k=1,lroot
                                               ! Irrigate same amount for all members (based on
                                               ! unperturbed ensemble member)
@@ -778,7 +804,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
           !                            ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)   ! Original
                                      ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)/IrrigScale(t) ! BZ added IrrigScale
 
-                                     if( ma .le. LIS_rc%irrigation_thresh ) then
+                                     if( ma .le. SM_thresh ) then
                                         do l = 1, LIS_rc%irrigation_mxsoildpth
                                            if( l == 1 ) then
                                            twater = (SMCMAX - NOAHMP36_struc(n)%noahmp36(t)%smc(l))*sldpth(l)*1000.0
@@ -846,4 +872,6 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
              enddo
           enddo
   end if
+! LB WIP always set to false after irrigation module
+  NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
   end subroutine noahmp36_getirrigationstates

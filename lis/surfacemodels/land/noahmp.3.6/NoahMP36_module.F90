@@ -440,6 +440,10 @@ module NoahMP36_module
 !     wood to non-wood ratio
 !   \item[MRP]
 !     microbial respiration parameter. unit: umol co2 /kg c/ s
+!   \item[irrigation_triggered]
+!     flag for irrigation application (logical) LB WIP
+!   \item[innovt0 & innovt1]
+!     innovations at t-1 and t. unit: dB
 !   \end{description}
 !
 ! !REVISION HISTORY:
@@ -679,6 +683,10 @@ module NoahMP36_module
      ! used for constraints on calibratable parameters for OPTUE ! SY
      !-------------------------------------------------------------------------
      real               :: smcdry ! SY: Not used by NoahMP3.6 from REDPRM, but read in from table
+
+     !-----------------------LB NEW option: add irrigation_triggered---------------
+     logical            :: irrigation_triggered
+     real				:: innovt0, innovt1
 
   end type noahmp36dec
 end module NoahMP36_module

@@ -325,6 +325,12 @@ contains
                 NOAHMP36_struc(n)%noahmp36(t)%rivsto = 0.0
                 NOAHMP36_struc(n)%noahmp36(t)%fldsto = 0.0
                 NOAHMP36_struc(n)%noahmp36(t)%fldfrc = 0.0
+
+                !LB Aug 2022 WIP
+                NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
+                NOAHMP36_struc(n)%noahmp36(t)%innovt0 = -9999.0
+                NOAHMP36_struc(n)%noahmp36(t)%innovt1 = -9999.0
+                
             enddo ! end of tile (t) loop
 !------------------------------------------------------------------------
 ! Model timestep Alarm

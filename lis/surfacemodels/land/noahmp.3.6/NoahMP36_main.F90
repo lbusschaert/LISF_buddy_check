@@ -315,6 +315,7 @@ subroutine NoahMP36_main(n)
     real,   allocatable   :: fldfrc(:)
     real,   allocatable   :: tmp_nensem(:,:,:)
 
+
     integer               :: status
     integer               :: c,r
     integer               :: ios, nid,rivid,fldid
