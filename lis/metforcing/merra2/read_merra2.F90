@@ -18,7 +18,7 @@
 !
 ! !INTERFACE:
 subroutine read_merra2(n, order, month, findex,          &
-                       slvname, flxname, lfoname, radname, &
+                       slvname, flxname, flxname_p, lfoname, radname, &
                        merraforc, ferror)
 ! !USES:
   use LIS_coreMod,       only : LIS_rc, LIS_domain, LIS_masterproc
@@ -37,7 +37,7 @@ subroutine read_merra2(n, order, month, findex,          &
   integer, intent(in)          :: month
   integer, intent(in)          :: findex
   character(len=*), intent(in) :: slvname
-  character(len=*), intent(in) :: flxname
+  character(len=*), intent(in) :: flxname, flxname_p
   character(len=*), intent(in) :: lfoname
   character(len=*), intent(in) :: radname
   real, intent(inout)          :: merraforc(merra2_struc(n)%nvars, 24, &
@@ -86,13 +86,13 @@ subroutine read_merra2(n, order, month, findex,          &
 !  \end{description}
 !EOP
   
-  integer   :: ftn_slv, ftn_flx, ftn_lfo,ftn_rad
+  integer   :: ftn_slv, ftn_flx, ftn_flx_p, ftn_lfo,ftn_rad
   integer   :: tmpId, qId, uId, vId, psId
   integer   :: prectotId, precconId, swgdnId, lwgabId, emisId
   integer   :: precsnoId, hlmlID
   integer   :: swlandId, pardrId, pardfId
   integer   :: nr_index, nc_index
-  logical   :: file_exists, file_exists1
+  logical   :: file_exists, file_exists_p, file_exists1
   integer   :: c,r,t,k,iret
   integer   :: mo
   logical   :: read_lnd
@@ -220,28 +220,32 @@ subroutine read_merra2(n, order, month, findex,          &
   endif
 
 ! Read in the flux file fields (*flx):
-  inquire(file=flxname,exist=file_exists) 
-  if(file_exists) then 
+  inquire(file=flxname,exist=file_exists)
+  inquire(file=flxname_p,exist=file_exists_p) 
+  if(file_exists.and.file_exists_p) then 
 
      write(LIS_logunit,*) '[INFO] Reading MERRA-2 file (bookend,',order,' ... '
      write(LIS_logunit,*) trim(flxname),' (for corrected precipitation fields)'
+     write(LIS_logunit,*) trim(flxname_p),' (for synthetic experiment Ptot)'
      call LIS_verify(nf90_open(path=trim(flxname), mode=NF90_NOWRITE, &
           ncid=ftn_flx),'nf90_open failed for flxfile in read_merra2')
+     call LIS_verify(nf90_open(path=trim(flxname_p), mode=NF90_NOWRITE, &
+          ncid=ftn_flx_p),'nf90_open failed for flxfile_p in read_merra2')
      
-   ! Read in the *corrected* total precipitation field:
+   ! Read in the *corrected* total precipitation field: (LB: adapted for 10yrshift)
      if(merra2_struc(n)%usecorr.eq.1) then 
-        call LIS_verify(nf90_inq_varid(ftn_flx,'PRECTOTCORR',prectotId), &
-             'nf90_inq_varid failed for prectotcorr (flx) in read_merra2')
+        call LIS_verify(nf90_inq_varid(ftn_flx_p,'PRECTOTCORR',prectotId), &
+             'nf90_inq_varid failed for prectotcorr (flx_p) in read_merra2')
 
-        call LIS_verify(nf90_get_var(ftn_flx,prectotId, prectot), &
-             'nf90_get_var failed for prectotcorr (flx) in read_merra2')
+        call LIS_verify(nf90_get_var(ftn_flx_p,prectotId, prectot), &
+             'nf90_get_var failed for prectotcorr (flx_p) in read_merra2')
 
      else  ! Original total precip:
-        call LIS_verify(nf90_inq_varid(ftn_flx,'PRECTOT',prectotId), &
-             'nf90_inq_varid failed for prectot (flx) in read_merra2')
+        call LIS_verify(nf90_inq_varid(ftn_flx_p,'PRECTOT',prectotId), &
+             'nf90_inq_varid failed for prectot (flx_p) in read_merra2')
 
-        call LIS_verify(nf90_get_var(ftn_flx,prectotId, prectot), &
-             'nf90_get_var failed for prectot (flx) in read_merra2')
+        call LIS_verify(nf90_get_var(ftn_flx_p,prectotId, prectot), &
+             'nf90_get_var failed for prectot (flx_p) in read_merra2')
      endif
 
      call interp_merra2_var(n,findex,month,prectot,  8, .true.,merraforc)
@@ -249,11 +253,11 @@ subroutine read_merra2(n, order, month, findex,          &
    ! Read in the convective precipitation, if selected in the forcing table:
      if( LIS_FORC_CRainf%selectOpt.eq.1 .and. &
           merra2_struc(n)%usecorr.eq.0 ) then
-        call LIS_verify(nf90_inq_varid(ftn_flx,'PRECCON',precconId), &
-             'nf90_inq_varid failed for preccon (flx) in read_merra2')
+        call LIS_verify(nf90_inq_varid(ftn_flx_p,'PRECCON',precconId), &
+             'nf90_inq_varid failed for preccon (flx_p) in read_merra2')
 
-        call LIS_verify(nf90_get_var(ftn_flx,precconId, preccon), &
-             'nf90_get_var failed for preccon (flx) in read_merra2')
+        call LIS_verify(nf90_get_var(ftn_flx_p,precconId, preccon), &
+             'nf90_get_var failed for preccon (flx_p) in read_merra2')
 
         call interp_merra2_var(n,findex,month,preccon,  9, .true.,merraforc)
      endif
@@ -285,7 +289,7 @@ subroutine read_merra2(n, order, month, findex,          &
           'failed to close flxfile in read_merra2')
      
   else
-     write(LIS_logunit,*) '[ERR] ',trim(flxname)//' does not exist'
+     write(LIS_logunit,*) '[ERR] ',trim(flxname)//' or ', trim(flxname_p)//' does not exist'
      call LIS_endrun()
   endif
   
