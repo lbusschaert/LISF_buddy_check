@@ -515,6 +515,13 @@ subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, &
      write(unit=cmonth,fmt='(i2.2)') mo
      write(unit=cdate, fmt='(i4.4,i2.2,i2.2)') yr,mo,da
      write(unit=cdate_p, fmt='(i4.4,i2.2,i2.2)') yr-10,mo,da
+
+     ! Check for leap year, if yes set date to 28 feb
+     if (mo==2 .and. da==29) then
+         write(unit=cdate_p, fmt='(i4.4,i2.2,i2.2)') yr-10,mo,28
+     else
+         write(unit=cdate_p, fmt='(i4.4,i2.2,i2.2)') yr-10,mo,da
+     endif     
      
      if (yr==1979 .and. mo>=2) then
         prefix = 'MERRA2_100'

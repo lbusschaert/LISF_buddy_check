@@ -183,17 +183,6 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 
   if(LIS_rc%pert_bias_corr.eq.0) then
       do t=1,LIS_rc%npatch(n,LIS_rc%lsm_index)
-
-       ! LB: change SM_threshold dpding on innov (WIP)
-         SM_thresh = LIS_rc%irrigation_thresh
-         if (LIS_rc%NEW_option.eq.1) then
-             if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
-                SM_thresh = 0
-             else
-                SM_thresh = 2 ! unrealistic but high
-             end if
-         end if
-
          timestep = NOAHMP36_struc(n)%dt
 
          ! Adjust bounds by timestep to account for the fact that LIS_rc%hr, etc.
@@ -244,9 +233,22 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
          shdfac =  NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly(LIS_rc%mo)
 
        ! If we are outside of the irrigation window, set rate to 0
+       ! LB also set irrigation_triggered to false
          if ((ltime.gt.shift_otimee).or.(ltime.lt.shift_otimes)) then
            irrigRate(t) = 0.0
+           NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
          endif
+
+       ! LB: change SM_threshold dpding on innov (WIP)
+         SM_thresh = LIS_rc%irrigation_thresh
+         if (LIS_rc%NEW_option.eq.1) then
+             if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
+                SM_thresh = 1 ! forces irrigation
+             else
+                SM_thresh = -1 ! unrealistic but avoids irrigation
+             end if
+         end if
+
 
     ! Calculate vegetation and root depth parameters
 
@@ -543,17 +545,6 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 
              t=(i-1)*LIS_rc%nensem(n)+m
 
-            ! LB: change SM_threshold dpding on innov (WIP)
-              SM_thresh = LIS_rc%irrigation_thresh
-              if (LIS_rc%NEW_option.eq.1) then
-                  if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
-                     SM_thresh = 0
-                  else
-                     SM_thresh = 2 ! unrealistic but high
-                  end if
-              end if
-
-
              ! Adjust bounds by timestep to account for the fact that LIS_rc%hr, etc.
              ! will represents the END of the integration timestep window
 
@@ -606,10 +597,23 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                 shdfac =  NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly(LIS_rc%mo)
              end if
 
-             ! If we are outside of the irrigation window, set rate to 0
+           ! If we are outside of the irrigation window, set rate to 0
+           ! LB also set irrigation_triggered to false
              if ((ltime.gt.shift_otimee).or.(ltime.lt.shift_otimes)) then
-                irrigRate(t) = 0.0
+               irrigRate(t) = 0.0
+               NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
              endif
+
+           ! LB: change SM_threshold dpding on innov (WIP)
+             SM_thresh = LIS_rc%irrigation_thresh
+             if (LIS_rc%NEW_option.eq.1) then
+                 if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
+                    SM_thresh = 1 ! forces irrigation
+                 else
+                    SM_thresh = -1 ! unrealistic but avoids irrigation
+                 end if
+             end if
+
 
           ! Calculate vegetation and root depth parameters
 

@@ -252,7 +252,7 @@ contains
     
 !-----------------LB WIP----------------------------
     real                              :: Dinnov
-    real, parameter                   :: innov_thresh4irr = 4 ! LB To define
+    real, parameter                   :: innov_thresh4irr = 3.91 ! LB To define
 
 
 !----------------------------------------------------------------------------
