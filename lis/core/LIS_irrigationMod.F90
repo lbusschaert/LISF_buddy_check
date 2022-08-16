@@ -108,6 +108,13 @@ contains
        write(LIS_logunit,*) "[INFO] NEW option:  ",&
                              LIS_rc%NEW_option
 
+     ! Threshold for irrigation
+       call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%NEW_option,&
+            label="thresh4irr:", rc=rc)
+       call LIS_verify(rc,"thresh4irr: not defined. Exit run...")
+       write(LIS_logunit,*) "[INFO] thresh4irr:  ",&
+                             LIS_rc%thresh4irr
+
      ! Frequency with which irrigation field is written out:
        call ESMF_ConfigGetAttribute(LIS_config,time,&
             label="Irrigation output interval:",rc=rc)

@@ -949,6 +949,7 @@ module LIS_PRIV_rcMod
      integer                :: irrigation_mxsoildpth
 
      integer                :: NEW_option ! LB WIP
+     real                   :: thresh4irr ! LB WIP
 
      integer                :: forecastMode
      logical                :: zterp_correction
