@@ -109,7 +109,7 @@ contains
                              LIS_rc%NEW_option
 
      ! Threshold for irrigation
-       call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%NEW_option,&
+       call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%thresh4irr,&
             label="thresh4irr:", rc=rc)
        call LIS_verify(rc,"thresh4irr: not defined. Exit run...")
        write(LIS_logunit,*) "[INFO] thresh4irr:  ",&
