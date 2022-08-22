@@ -73,7 +73,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 !EOP
   implicit none
   ! Sprinkler parameters
-  real, parameter      :: otimess = 6.0 ! local trigger check start time [hour]
+  real, parameter      :: otimess = 6.25 ! local trigger check start time [hour]
   real, parameter      :: irrhrs = 4.   ! duration of irrigation hours
   ! Drip parameters (not currently implemented)
   real, parameter      :: otimeds = 6.0 ! local trigger check start time [hour]
