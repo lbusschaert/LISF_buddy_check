@@ -241,7 +241,9 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 
        ! LB: change SM_threshold dpding on innov (WIP)
          SM_thresh = LIS_rc%irrigation_thresh
+         gsthresh=1.0
          if (LIS_rc%NEW_option.eq.1) then
+             gsthresh=0.0
              if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
                 SM_thresh = 1 ! forces irrigation
              else
@@ -313,7 +315,6 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                       elseif(LIS_rc%growing_season .eq. 0) then
 
                         lai= NOAHMP36_struc(n)%noahmp36(t)%lai
-                        gsthresh=1.0
                         var=lai
                         shdfac2=1.0 - exp((-0.5)*lai) !based on Fang et al., 2018
 
