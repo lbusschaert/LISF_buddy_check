@@ -959,6 +959,10 @@ module LIS_PRIV_rcMod
      integer                :: irrigation_SourcePartition  !WN
      integer                :: irrigation_GWabstraction !JE 
 
+     integer                :: NEW_option !LB
+     real                   :: thresh4irr !LB
+     integer                :: shiftP_MERRA2 !LB
+
      logical, allocatable       :: LSM_DAinst_valid(:)
      logical, allocatable       :: Routing_DAinst_valid(:)
 

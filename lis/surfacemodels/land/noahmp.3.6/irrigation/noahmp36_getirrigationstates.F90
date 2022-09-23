@@ -64,6 +64,11 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 ! Feb 2022: Sara Modanesi; adding double option for activating irrigation (i.e.
 !                          growing season based on climatological GVF or based
 !                          on dynamic LAI
+! Aug 2022: Louise Busschaert; update irrigation using ensemble mean when runing
+!                              with perturbation bias correction option (based
+!                              on Wanshu Nie's implementation in NoahMP4).
+!
+! Aug 2022: Louise Busschaert; new option for irrigation WIP
 !EOP
   implicit none
   ! Sprinkler parameters
@@ -115,6 +120,16 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 !--------------wanshu-----add temp check-------
   real                 :: sfctemp, tempcheck
 
+!--------------------------!LB for ensemble means------------------------------
+  integer              :: i, m
+  real                 :: sfctemp_avg
+  real                 :: shdfac_avg
+  real                 :: smc_avg(nsoil)
+  real                 :: lai_avg
+
+!-------------------------!LB for new option----------------------------------
+  real                 :: SM_thresh
+
   call ESMF_StateGet(irrigState, "Irrigation rate",irrigRateField,rc=rc)
   call LIS_verify(rc,'ESMF_StateGet failed for Irrigation rate')    
   call ESMF_FieldGet(irrigRateField, localDE=0,farrayPtr=irrigRate,rc=rc)
@@ -165,320 +180,689 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
      otimee = otimefs + irrhrf
   endif
   
- 
-  do t=1,LIS_rc%npatch(n,LIS_rc%lsm_index)
+ if(LIS_rc%pert_bias_corr.eq.0) then 
+        do t=1,LIS_rc%npatch(n,LIS_rc%lsm_index)
 
-     timestep = NOAHMP36_struc(n)%dt
-     
-     ! Adjust bounds by timestep to account for the fact that LIS_rc%hr, etc. 
-     ! will represents the END of the integration timestep window
-
-
-     shift_otimes = otimes + (timestep/3600.)
-     shift_otimee = otimee + (timestep/3600.)
-
-     twater  = 0.0
-     water   = 0.0
-     asmc    = 0.0
-     tsmcwlt = 0.0
-     tsmcref = 0.0
-     ma      = 0.0
-     crootd  = 0.0
-     lroot   = 0
-
-     !JE this code block will need to be changed to account for variable
-     ! soil layers in Noah-MP
-
-     sldpth(1) = 0.1         ! Soil layer thicknesses (m)
-     sldpth(2) = 0.3
-     sldpth(3) = 0.6
-     sldpth(4) = 1.0
-     zdpth(1) = sldpth(1)         ! Soil layer depth from top (m)
-     zdpth(2) = sldpth(1) + sldpth(2)
-     zdpth(3) = sldpth(1) + sldpth(2) + sldpth(3)
-     zdpth(4) = sldpth(1) + sldpth(2) + sldpth(3) + sldpth(4)
-
-     smcmax = MAXSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype) 
-     smcref = REFSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
-     smcwlt = WLTSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
-     sfctemp = NOAHMP36_struc(n)%noahmp36(t)%sfctmp
-     tempcheck = 273.16 + 2.5
-
-     gid = LIS_surface(n,LIS_rc%lsm_index)%tile(t)%index
-     chhr = nint(24.0*(LIS_domain(n)%grid(gid)%lon/360.0))
-     if((LIS_domain(n)%grid(gid)%lon.lt.0.0).and.&
-          (abs(mod(LIS_domain(n)%grid(gid)%lon,15.0)).ge.0.0001)) &
-          chhr = chhr -1
-     lhr = LIS_rc%hr +chhr
-     if(lhr.ge.24) lhr = lhr-24
-     if(lhr.lt.0) lhr = lhr+24
-                
-     ltime = real(lhr)+real(LIS_rc%mn)/60.0+real(LIS_rc%ss)/3600.0
-    
-     shdfac =  NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly(LIS_rc%mo)
-
-   ! If we are outside of the irrigation window, set rate to 0
-     if ((ltime.gt.shift_otimee).or.(ltime.lt.shift_otimes)) then
-       irrigRate(t) = 0.0    
-     endif
-
-! Calculate vegetation and root depth parameters
-   
-!---------wanshu----add temp check----
-! JE This temperature check avoids irrigating at temperatures near or below 0C
-     if((ltime.ge.shift_otimes).and.(ltime.le.shift_otimee).and. &
-         (sfctemp.gt.tempcheck)) then 
-!------------------------------------
-        vegt = LIS_surface(n,LIS_rc%lsm_index)%tile(t)%vegt
-       !----------------------------------------------------------------------       
-       !    Proceed if it is non-forest, non-baresoil, non-urban
-       !----------------------------------------------------------------------       
-        if(LIS_rc%lcscheme.eq."UMD") then !UMD
-           veg_index1 = 6
-           veg_index2 = 11
-        elseif(LIS_rc%lcscheme.eq."MODIS".or.LIS_rc%lcscheme.eq."IGBPNCEP") &
-             then 
-           veg_index1 = 6
-           veg_index2 = 14
-        elseif(LIS_rc%lcscheme.eq."USGS") then !UMD
-           veg_index1 = 2
-           veg_index2 = 10
-        else
-           write(LIS_logunit,*) '[ERR] The landcover scheme ',&
-                trim(LIS_rc%lcscheme),' is not supported for irrigation '
-           call LIS_endrun()
-        endif
-        
-        if(vegt.ge.veg_index1.and.vegt.le.veg_index2&
-             .and.vegt.ne.LIS_rc%bareclass.and.&
-             vegt.ne.LIS_rc%urbanclass) then 
-           if(irrigFrac(t).gt.0) then 
-              ippix = irrigFrac(t)*0.01
-              
-              ! Determine the amount of irrigation to apply if irrigated tile
-              if( IrrigScale(t).gt.0.0 ) then ! irrigated tile
-!                if(ippix.gt.0.0) then  ! irrigated tile
-                 
-                 !shdmin = minval(NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly)
-                 !shdmax = maxval(NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly)
-                 shdmin =placeshdmin(LIS_surface(n,LIS_rc%lsm_index)%tile(t)%col,     &
-                                                       LIS_surface(n,LIS_rc%lsm_index)%tile(t)%row)
-                 shdmax =placeshdmax(LIS_surface(n,LIS_rc%lsm_index)%tile(t)%col,     &
-                                        LIS_surface(n,LIS_rc%lsm_index)%tile(t)%row)
-                 
-               ! write(*,*) 'test for greenness fraction value:', shdfac, shdmin, shdmax
-               ! let gsthresh be a function of the range, which means the larger
-               ! the range is, the higher GVF threshold will be for this grid.                           
-               ! JE Gsthresh is a GVF threshold used to identify a growing season for each
-               ! pixel and allow irrigation during that time
-
-               !SM Feb 2022 start changes to avoid douple option for the growing
-               !season: dynamic LAI or climatological GVF
-                  if(LIS_rc%growing_season .eq. 1) then!GVF
-
-                    gsthresh = shdmin + &
-                        (LIS_rc%irrigation_GVFparam1 + LIS_rc%irrigation_GVFparam2*&
-                         (shdmax-shdmin)) * (shdmax - shdmin)
-                    var=shdfac
-                    shdfac2=shdfac
-
-                  elseif(LIS_rc%growing_season .eq. 0) then
-
-                    lai= NOAHMP36_struc(n)%noahmp36(t)%lai
-                    gsthresh=1.0
-                    var=lai
-                    shdfac2=1.0 - exp((-0.5)*lai) !based on Fang et al., 2018
-
-                  endif
+         timestep = NOAHMP36_struc(n)%dt
+         
+         ! Adjust bounds by timestep to account for the fact that LIS_rc%hr, etc. 
+         ! will represents the END of the integration timestep window
 
 
-                 !JE Changes needed to this code block to account for variable soil layers
-                 ! in Noah-MP
-                 
-                ! if(shdfac .ge. gsthresh) then !SM Feb 2022 outcommented to allow double option for the growing season
-                   ! crootd = irrigRootdepth(t)*shdfac
-                 if(var .ge. gsthresh) then !SM Feb 2022
-                    crootd = irrigRootdepth(t)*shdfac2 ! end changes SM Feb 2022
-                    if(crootd.gt.0.and.crootd.lt.zdpth(1)) then 
-                       lroot = 1
-                       rdpth(1) = crootd
-                    elseif(crootd .ge. zdpth(1).and.crootd .lt. zdpth(2) ) then
-                       lroot = 2
-                       rdpth(1) = sldpth(1)
-                       rdpth(2) = crootd - zdpth(1)
-                    elseif ( crootd.ge.zdpth(2).and.crootd .lt. zdpth(3) ) then
-                       lroot = 3
-                       rdpth(1) = sldpth(1)
-                       rdpth(2) = sldpth(2)
-                       rdpth(3) = crootd - zdpth(2)
-                    elseif ( crootd.ge.zdpth(3).and.crootd .lt. zdpth(4) ) then
-                       lroot = 4
-                       rdpth(1) = sldpth(1)
-                       rdpth(2) = sldpth(2)
-                       rdpth(3) = sldpth(3)
-                       rdpth(4) = crootd - zdpth(3)
-!                      else
-!                         print*,'error getting root depth'
-!                         stop
-                    endif
-       
-                !!!!! SPRINKLER IRRIGATION
-                    if(LIS_rc%irrigation_type.eq."Sprinkler") then
-                       !----------------------------------------------------------------------       
-                       !    Set the irrigation rate at start time; keep the value till next day
-                       !    If local time at the tile fall in the irrigation check
-                       !    hour then check the root zone average soil moisture
-                       !----------------------------------------------------------------------       
-                       if(ltime.eq.shift_otimes) then !Check moisture availability at otimes only
-                         !-------------------------------------------------------------
-                         !     Compute the root zone accumlative soil moisture [mm], 
-                         !     field capacity [mm], and wilting point [mm] 
-                         !-------------------------------------------------------------
-                          if(lroot.gt.0) then 
-                             do k=1,lroot
-                                asmc = asmc + NOAHMP36_struc(n)%noahmp36(t)%smc(k)*&
-                                     rdpth(k)*1000.0
-                                tsmcwlt = tsmcwlt + smcwlt * rdpth(k)*1000.0
-                                tsmcref = tsmcref + smcref * rdpth(k)*1000.0
-                             enddo
-                         !---------------------------------------------------------------
-                         !     Get the root zone moisture availability to the plant
-                         !--------------------------------------------------------------- 
-                             ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)
-                             if(ma.le.LIS_rc%irrigation_thresh) then 
-                                do k=1,lroot
-                                   water(k) = &
-                                        (smcref-NOAHMP36_struc(n)%noahmp36(t)%smc(k))*&
-                                        rdpth(k)*1000.0
-                                   twater = twater + water(k)
-                                enddo
-                                
-                             !-----------------------------------------------------------------------------
-                             !     Scale the irrigation intensity to the crop % when intensity < crop%.
-                             !     Expand irrigation for non-crop, non-forest when intensity > crop %
-                             !     in preference order of grassland first then rest.
-                             !     *scale is pre-computed for each tile in getirrpmapetc module in a way
-                             !     that is transparent to every tile irrigated or non-irrigated
-                             !-----------------------------------------------------------------------------
-                                twater1 = twater
-                                twater = twater * irrigScale(t)
-                                
-                             !-----------------------------------------------------------------------------
-                             !     Apply efficiency correction
-                             !-----------------------------------------------------------------------------
-                                twater2 = twater
-                                twater = twater*(100.0/(100.0-efcor))
-                             !-----------------------------------------------------------------------------
-                             !     Compute irrigation rate
-                                irrigRate(t) = twater/(irrhr*3600.0)
+         shift_otimes = otimes + (timestep/3600.)
+         shift_otimee = otimee + (timestep/3600.)
 
-                           endif
-                        endif
-                     endif
-                       !!!!! DRIP IRRIGATION (NOT CURRENTLY IMPLEMENTED)
-                  elseif(LIS_rc%irrigation_type.eq."Drip") then
-                       ! Need to get crop coefficient so that we can caculate unstressed Transp
-                       !       RC=RSMIN/(XLAI*RCS*RCT*RCQ)
-                       !       PCIRR=(RR+DELTA)/(RR*(1.+RC*CH)+DELTA)
-                       ! CALL TRANSP (with PCIRR)
+         twater  = 0.0
+         water   = 0.0
+         asmc    = 0.0
+         tsmcwlt = 0.0
+         tsmcref = 0.0
+         ma      = 0.0
+         crootd  = 0.0
+         lroot   = 0
 
-                       ! Then add enough water to get from actual Transp to unstressed Transp
-                     twater = 0.0
-                         !-----------------------------------------------------------------------------
-                         !     Apply efficiency correction
-                         !-----------------------------------------------------------------------------
-                         twater2 = twater
-                         twater = twater*(100.0/(100.0-efcor))
-                         !-----------------------------------------------------------------------------
-                         !     Compute irrigation rate
-                         !-----------------------------------------------------------------------------
-                         irrigRate(t) = twater  ! for drip calculation, twater is a rate [kg/m2/s]
-                         NOAHMP36_struc(n)%noahmp36(t)%smc(1) = &
-                         NOAHMP36_struc(n)%noahmp36(t)%smc(1) + (twater-twater2)/(sldpth(1)*1000.0) !! check this with Sujay
+         !JE this code block will need to be changed to account for variable
+         ! soil layers in Noah-MP
 
-                       !!!!! FLOOD IRRIGATION
-                         elseif(LIS_rc%irrigation_type.eq."Flood") then
-                         !-------------------------------------------------------------
-                         !     Compute the root zone accumlative soil moisture [mm], 
-                         !     field capacity [mm], and wilting point [mm] 
-                         !-------------------------------------------------------------
-                         if(lroot.gt.0) then 
-                            do k=1,lroot
-                               asmc = asmc + NOAHMP36_struc(n)%noahmp36(t)%smc(k)*&
-                                    rdpth(k)*1000.0
-                               tsmcwlt = tsmcwlt + smcwlt * rdpth(k)*1000.0
-                               tsmcref = tsmcref + smcref * rdpth(k)*1000.0
-                            enddo
-                         !---------------------------------------------------------------
-                         !     Get the root zone moisture availability to the plant
-                         !--------------------------------------------------------------- 
-!                            ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)   ! Original
-                            ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)/IrrigScale(t) ! BZ added IrrigScale
+         sldpth(1) = 0.1         ! Soil layer thicknesses (m)
+         sldpth(2) = 0.3
+         sldpth(3) = 0.6
+         sldpth(4) = 1.0
+         zdpth(1) = sldpth(1)         ! Soil layer depth from top (m)
+         zdpth(2) = sldpth(1) + sldpth(2)
+         zdpth(3) = sldpth(1) + sldpth(2) + sldpth(3)
+         zdpth(4) = sldpth(1) + sldpth(2) + sldpth(3) + sldpth(4)
 
-                            if( ma .le. LIS_rc%irrigation_thresh ) then
-                              do l = 1, LIS_rc%irrigation_mxsoildpth
-                                 if( l == 1 ) then
-                                   twater = (SMCMAX - NOAHMP36_struc(n)%noahmp36(t)%smc(l))*sldpth(l)*1000.0
-                                 else
-                                 ! BZ modification 4/2/2015 to saturate entire column and apply ippix 
-                                   twater = twater + (smcmax - NOAHMP36_struc(n)%noahmp36(t)%smc(l))*sldpth(l)*1000.0
-!                                 twater = twater + (smcmax - noah33_struc(n)%noah(t)%smc(2))*sldpth(2)*1000.0
-!                                 twater = twater + (smcmax - noah33_struc(n)%noah(t)%smc(3))*sldpth(3)*1000.0
-!                                 twater = twater + (smcmax - noah33_struc(n)%noah(t)%smc(4))*sldpth(4)*1000.0
-                                 endif
-                              end do
+         smcmax = MAXSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype) 
+         smcref = REFSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+         smcwlt = WLTSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+         sfctemp = NOAHMP36_struc(n)%noahmp36(t)%sfctmp
+         tempcheck = 273.16 + 2.5
 
-                              !-----------------------------------------------------------------------------
-                              !     Scale the irrigation intensity to the crop % when intensity < crop%.
-                              !     Expand irrigation for non-crop, non-forest when intensity > crop %
-                              !     in preference order of grassland first then rest.
-                              !     *scale is pre-computed for each tile in getirrpmapetc module in a way
-                              !     that is transparent to every tile irrigated or non-irrigated
-                              !-----------------------------------------------------------------------------
-                              twater1 = twater
-                              twater = twater * irrigScale(t)
-                              !-----------------------------------------------------------------------------
-                              !     Apply efficiency correction
-                              !-----------------------------------------------------------------------------
-                              twater2 = twater
-                              twater = twater*(100.0/(100.0-efcor))
-                              !-----------------------------------------------------------------------------
-                              !     Compute irrigation rate
-                              !-----------------------------------------------------------------------------
-                              irrigRate(t) = twater/LIS_rc%ts
-!                              noah33_struc(n)%noah(t)%smc(1) = smcmax   ! Original
+         gid = LIS_surface(n,LIS_rc%lsm_index)%tile(t)%index
+         chhr = nint(24.0*(LIS_domain(n)%grid(gid)%lon/360.0))
+         if((LIS_domain(n)%grid(gid)%lon.lt.0.0).and.&
+              (abs(mod(LIS_domain(n)%grid(gid)%lon,15.0)).ge.0.0001)) &
+              chhr = chhr -1
+         lhr = LIS_rc%hr +chhr
+         if(lhr.ge.24) lhr = lhr-24
+         if(lhr.lt.0) lhr = lhr+24
+                    
+         ltime = real(lhr)+real(LIS_rc%mn)/60.0+real(LIS_rc%ss)/3600.0
 
-                            ! BZ modification 4/2/2015 to account for ippix and all soil layers:
-                               do l = 1, LIS_rc%irrigation_mxsoildpth
-                                  NOAHMP36_struc(n)%noahmp36(t)%smc(l) = IrrigScale(t)*smcmax + &
-                                                 (1-IrrigScale(t))*NOAHMP36_struc(n)%noahmp36(t)%smc(l)
-                               end do
-!                              noah33_struc(n)%noah(t)%smc(1) = IrrigScale(t)*smcmax + &
-!                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(1)
-!                              noah33_struc(n)%noah(t)%smc(2) = IrrigScale(t)*smcmax + &
-!                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(2)
-!                              noah33_struc(n)%noah(t)%smc(3) = IrrigScale(t)*smcmax + &
-!                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(3)
-!                              noah33_struc(n)%noah(t)%smc(4) = IrrigScale(t)*smcmax + &
-!                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(4)
-                            endif  
-                         endif
+         shdfac =  NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly(LIS_rc%mo)
+
+        ! If we are outside of the irrigation window, set rate to 0
+         if ((ltime.gt.shift_otimee).or.(ltime.lt.shift_otimes)) then
+           irrigRate(t) = 0.0    
+         endif
+
+        ! Calculate vegetation and root depth parameters
+
+        !---------wanshu----add temp check----
+        ! JE This temperature check avoids irrigating at temperatures near or below 0C
+         if((ltime.ge.shift_otimes).and.(ltime.le.shift_otimee).and. &
+             (sfctemp.gt.tempcheck)) then 
+        !------------------------------------
+            vegt = LIS_surface(n,LIS_rc%lsm_index)%tile(t)%vegt
+           !----------------------------------------------------------------------       
+           !    Proceed if it is non-forest, non-baresoil, non-urban
+           !----------------------------------------------------------------------       
+            if(LIS_rc%lcscheme.eq."UMD") then !UMD
+               veg_index1 = 6
+               veg_index2 = 11
+            elseif(LIS_rc%lcscheme.eq."MODIS".or.LIS_rc%lcscheme.eq."IGBPNCEP") &
+                 then 
+               veg_index1 = 6
+               veg_index2 = 14
+            elseif(LIS_rc%lcscheme.eq."USGS") then !UMD
+               veg_index1 = 2
+               veg_index2 = 10
+            else
+               write(LIS_logunit,*) '[ERR] The landcover scheme ',&
+                    trim(LIS_rc%lcscheme),' is not supported for irrigation '
+               call LIS_endrun()
+            endif
+            
+            if(vegt.ge.veg_index1.and.vegt.le.veg_index2&
+                 .and.vegt.ne.LIS_rc%bareclass.and.&
+                 vegt.ne.LIS_rc%urbanclass) then 
+               if(irrigFrac(t).gt.0) then 
+                  ippix = irrigFrac(t)*0.01
+                  
+                  ! Determine the amount of irrigation to apply if irrigated tile
+                  if( IrrigScale(t).gt.0.0 ) then ! irrigated tile
+        !                if(ippix.gt.0.0) then  ! irrigated tile
+                     
+                     !shdmin = minval(NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly)
+                     !shdmax = maxval(NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly)
+                     shdmin =placeshdmin(LIS_surface(n,LIS_rc%lsm_index)%tile(t)%col,     &
+                                                           LIS_surface(n,LIS_rc%lsm_index)%tile(t)%row)
+                     shdmax =placeshdmax(LIS_surface(n,LIS_rc%lsm_index)%tile(t)%col,     &
+                                            LIS_surface(n,LIS_rc%lsm_index)%tile(t)%row)
+                     
+                   ! write(*,*) 'test for greenness fraction value:', shdfac, shdmin, shdmax
+                   ! let gsthresh be a function of the range, which means the larger
+                   ! the range is, the higher GVF threshold will be for this grid.                           
+                   ! JE Gsthresh is a GVF threshold used to identify a growing season for each
+                   ! pixel and allow irrigation during that time
+
+                   !SM Feb 2022 start changes to avoid douple option for the growing
+                   !season: dynamic LAI or climatological GVF
+                      if(LIS_rc%growing_season .eq. 1) then!GVF
+
+                        gsthresh = shdmin + &
+                            (LIS_rc%irrigation_GVFparam1 + LIS_rc%irrigation_GVFparam2*&
+                             (shdmax-shdmin)) * (shdmax - shdmin)
+                        var=shdfac
+                        shdfac2=shdfac
+
+                      elseif(LIS_rc%growing_season .eq. 0) then
+
+                        lai= NOAHMP36_struc(n)%noahmp36(t)%lai
+                        gsthresh=1.0
+                        var=lai
+                        shdfac2=1.0 - exp((-0.5)*lai) !based on Fang et al., 2018
 
                       endif
 
-                   endif
-                end if
-             end if
-          end if
-  
-           ! Remove irrigated water from groundwater 
-           !JE Add in flag to turn groundwater abstraction on/off
-           if (LIS_rc%irrigation_GWabstraction.eq.1) then
-              AWS = NOAHMP36_struc(n)%noahmp36(t)%wa
-              Dtime = NOAHMP36_struc(n)%dt
-              NOAHMP36_struc(n)%noahmp36(t)%wa = AWS - irrigRate(t)*Dtime
-           end if
-       end if
 
-    enddo
+                     !JE Changes needed to this code block to account for variable soil layers
+                     ! in Noah-MP
+                     
+                    ! if(shdfac .ge. gsthresh) then !SM Feb 2022 outcommented to allow double option for the growing season
+                       ! crootd = irrigRootdepth(t)*shdfac
+                     if(var .ge. gsthresh) then !SM Feb 2022
+                        crootd = irrigRootdepth(t)*shdfac2 ! end changes SM Feb 2022
+                        if(crootd.gt.0.and.crootd.lt.zdpth(1)) then 
+                           lroot = 1
+                           rdpth(1) = crootd
+                        elseif(crootd .ge. zdpth(1).and.crootd .lt. zdpth(2) ) then
+                           lroot = 2
+                           rdpth(1) = sldpth(1)
+                           rdpth(2) = crootd - zdpth(1)
+                        elseif ( crootd.ge.zdpth(2).and.crootd .lt. zdpth(3) ) then
+                           lroot = 3
+                           rdpth(1) = sldpth(1)
+                           rdpth(2) = sldpth(2)
+                           rdpth(3) = crootd - zdpth(2)
+                        elseif ( crootd.ge.zdpth(3).and.crootd .lt. zdpth(4) ) then
+                           lroot = 4
+                           rdpth(1) = sldpth(1)
+                           rdpth(2) = sldpth(2)
+                           rdpth(3) = sldpth(3)
+                           rdpth(4) = crootd - zdpth(3)
+        !                      else
+        !                         print*,'error getting root depth'
+        !                         stop
+                        endif
+           
+                    !!!!! SPRINKLER IRRIGATION
+                        if(LIS_rc%irrigation_type.eq."Sprinkler") then
+                           !----------------------------------------------------------------------       
+                           !    Set the irrigation rate at start time; keep the value till next day
+                           !    If local time at the tile fall in the irrigation check
+                           !    hour then check the root zone average soil moisture
+                           !----------------------------------------------------------------------       
+                           if(ltime.eq.shift_otimes) then !Check moisture availability at otimes only
+                             !-------------------------------------------------------------
+                             !     Compute the root zone accumlative soil moisture [mm], 
+                             !     field capacity [mm], and wilting point [mm] 
+                             !-------------------------------------------------------------
+                              if(lroot.gt.0) then 
+                                 do k=1,lroot
+                                    asmc = asmc + NOAHMP36_struc(n)%noahmp36(t)%smc(k)*&
+                                         rdpth(k)*1000.0
+                                    tsmcwlt = tsmcwlt + smcwlt * rdpth(k)*1000.0
+                                    tsmcref = tsmcref + smcref * rdpth(k)*1000.0
+                                 enddo
+                             !---------------------------------------------------------------
+                             !     Get the root zone moisture availability to the plant
+                             !--------------------------------------------------------------- 
+                                 ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)
+                                 if(ma.le.LIS_rc%irrigation_thresh) then 
+                                    do k=1,lroot
+                                       water(k) = &
+                                            (smcref-NOAHMP36_struc(n)%noahmp36(t)%smc(k))*&
+                                            rdpth(k)*1000.0
+                                       twater = twater + water(k)
+                                    enddo
+                                    
+                                 !-----------------------------------------------------------------------------
+                                 !     Scale the irrigation intensity to the crop % when intensity < crop%.
+                                 !     Expand irrigation for non-crop, non-forest when intensity > crop %
+                                 !     in preference order of grassland first then rest.
+                                 !     *scale is pre-computed for each tile in getirrpmapetc module in a way
+                                 !     that is transparent to every tile irrigated or non-irrigated
+                                 !-----------------------------------------------------------------------------
+                                    twater1 = twater
+                                    twater = twater * irrigScale(t)
+                                    
+                                 !-----------------------------------------------------------------------------
+                                 !     Apply efficiency correction
+                                 !-----------------------------------------------------------------------------
+                                    twater2 = twater
+                                    twater = twater*(100.0/(100.0-efcor))
+                                 !-----------------------------------------------------------------------------
+                                 !     Compute irrigation rate
+                                    irrigRate(t) = twater/(irrhr*3600.0)
+
+                               endif
+                            endif
+                         endif
+                           !!!!! DRIP IRRIGATION (NOT CURRENTLY IMPLEMENTED)
+                      elseif(LIS_rc%irrigation_type.eq."Drip") then
+                           ! Need to get crop coefficient so that we can caculate unstressed Transp
+                           !       RC=RSMIN/(XLAI*RCS*RCT*RCQ)
+                           !       PCIRR=(RR+DELTA)/(RR*(1.+RC*CH)+DELTA)
+                           ! CALL TRANSP (with PCIRR)
+
+                           ! Then add enough water to get from actual Transp to unstressed Transp
+                         twater = 0.0
+                             !-----------------------------------------------------------------------------
+                             !     Apply efficiency correction
+                             !-----------------------------------------------------------------------------
+                             twater2 = twater
+                             twater = twater*(100.0/(100.0-efcor))
+                             !-----------------------------------------------------------------------------
+                             !     Compute irrigation rate
+                             !-----------------------------------------------------------------------------
+                             irrigRate(t) = twater  ! for drip calculation, twater is a rate [kg/m2/s]
+                             NOAHMP36_struc(n)%noahmp36(t)%smc(1) = &
+                             NOAHMP36_struc(n)%noahmp36(t)%smc(1) + (twater-twater2)/(sldpth(1)*1000.0) !! check this with Sujay
+
+                           !!!!! FLOOD IRRIGATION
+                             elseif(LIS_rc%irrigation_type.eq."Flood") then
+                             !-------------------------------------------------------------
+                             !     Compute the root zone accumlative soil moisture [mm], 
+                             !     field capacity [mm], and wilting point [mm] 
+                             !-------------------------------------------------------------
+                             if(lroot.gt.0) then 
+                                do k=1,lroot
+                                   asmc = asmc + NOAHMP36_struc(n)%noahmp36(t)%smc(k)*&
+                                        rdpth(k)*1000.0
+                                   tsmcwlt = tsmcwlt + smcwlt * rdpth(k)*1000.0
+                                   tsmcref = tsmcref + smcref * rdpth(k)*1000.0
+                                enddo
+                             !---------------------------------------------------------------
+                             !     Get the root zone moisture availability to the plant
+                             !--------------------------------------------------------------- 
+        !                            ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)   ! Original
+                                ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)/IrrigScale(t) ! BZ added IrrigScale
+
+                                if( ma .le. LIS_rc%irrigation_thresh ) then
+                                  do l = 1, LIS_rc%irrigation_mxsoildpth
+                                     if( l == 1 ) then
+                                       twater = (SMCMAX - NOAHMP36_struc(n)%noahmp36(t)%smc(l))*sldpth(l)*1000.0
+                                     else
+                                     ! BZ modification 4/2/2015 to saturate entire column and apply ippix 
+                                       twater = twater + (smcmax - NOAHMP36_struc(n)%noahmp36(t)%smc(l))*sldpth(l)*1000.0
+        !                                 twater = twater + (smcmax - noah33_struc(n)%noah(t)%smc(2))*sldpth(2)*1000.0
+        !                                 twater = twater + (smcmax - noah33_struc(n)%noah(t)%smc(3))*sldpth(3)*1000.0
+        !                                 twater = twater + (smcmax - noah33_struc(n)%noah(t)%smc(4))*sldpth(4)*1000.0
+                                     endif
+                                  end do
+
+                                  !-----------------------------------------------------------------------------
+                                  !     Scale the irrigation intensity to the crop % when intensity < crop%.
+                                  !     Expand irrigation for non-crop, non-forest when intensity > crop %
+                                  !     in preference order of grassland first then rest.
+                                  !     *scale is pre-computed for each tile in getirrpmapetc module in a way
+                                  !     that is transparent to every tile irrigated or non-irrigated
+                                  !-----------------------------------------------------------------------------
+                                  twater1 = twater
+                                  twater = twater * irrigScale(t)
+                                  !-----------------------------------------------------------------------------
+                                  !     Apply efficiency correction
+                                  !-----------------------------------------------------------------------------
+                                  twater2 = twater
+                                  twater = twater*(100.0/(100.0-efcor))
+                                  !-----------------------------------------------------------------------------
+                                  !     Compute irrigation rate
+                                  !-----------------------------------------------------------------------------
+                                  irrigRate(t) = twater/LIS_rc%ts
+        !                              noah33_struc(n)%noah(t)%smc(1) = smcmax   ! Original
+
+                                ! BZ modification 4/2/2015 to account for ippix and all soil layers:
+                                   do l = 1, LIS_rc%irrigation_mxsoildpth
+                                      NOAHMP36_struc(n)%noahmp36(t)%smc(l) = IrrigScale(t)*smcmax + &
+                                                     (1-IrrigScale(t))*NOAHMP36_struc(n)%noahmp36(t)%smc(l)
+                                   end do
+        !                              noah33_struc(n)%noah(t)%smc(1) = IrrigScale(t)*smcmax + &
+        !                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(1)
+        !                              noah33_struc(n)%noah(t)%smc(2) = IrrigScale(t)*smcmax + &
+        !                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(2)
+        !                              noah33_struc(n)%noah(t)%smc(3) = IrrigScale(t)*smcmax + &
+        !                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(3)
+        !                              noah33_struc(n)%noah(t)%smc(4) = IrrigScale(t)*smcmax + &
+        !                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(4)
+                                endif  
+                             endif
+
+                          endif
+
+                       endif
+                    end if
+                 end if
+              end if
+
+               ! Remove irrigated water from groundwater 
+               !JE Add in flag to turn groundwater abstraction on/off
+               if (LIS_rc%irrigation_GWabstraction.eq.1) then
+                  AWS = NOAHMP36_struc(n)%noahmp36(t)%wa
+                  Dtime = NOAHMP36_struc(n)%dt
+                  NOAHMP36_struc(n)%noahmp36(t)%wa = AWS - irrigRate(t)*Dtime
+               end if
+           end if
+
+        enddo
+
+  elseif (LIS_rc%pert_bias_corr.eq.1) then
+      do i=1,LIS_rc%npatch(n,LIS_rc%lsm_index)/LIS_rc%nensem(n)
+
+         sfctemp_avg = 0.
+         shdfac_avg  = 0.
+         smc_avg     = 0.
+         lai_avg     = 0.
+
+         do m=1,LIS_rc%nensem(n)
+
+            t=(i-1)*LIS_rc%nensem(n)+m
+
+            sfctemp_avg=sfctemp_avg+NOAHMP36_struc(n)%noahmp36(t)%sfctmp
+            shdfac_avg=shdfac_avg+NOAHMP36_struc(n)%noahmp36(t)%fveg
+            lai_avg=lai_avg+NOAHMP36_struc(n)%noahmp36(t)%lai
+
+            do k=1,nsoil
+               smc_avg(k)=smc_avg(k)+NOAHMP36_struc(n)%noahmp36(t)%smc(k)
+            enddo
+         enddo
+
+         sfctemp_avg=sfctemp_avg/LIS_rc%nensem(n)
+         shdfac_avg=shdfac_avg/LIS_rc%nensem(n)
+         lai_avg=lai_avg/LIS_rc%nensem(n)
+
+         do k=1,nsoil
+            smc_avg(k)=smc_avg(k)/LIS_rc%nensem(n)
+         enddo
+
+         timestep = NOAHMP36_struc(n)%dt
+
+         do m=1,LIS_rc%nensem(n)
+
+             t=(i-1)*LIS_rc%nensem(n)+m
+
+             ! Adjust bounds by timestep to account for the fact that LIS_rc%hr, etc.
+             ! will represents the END of the integration timestep window
+
+
+             shift_otimes = otimes + (timestep/3600.)
+             shift_otimee = otimee + (timestep/3600.)
+
+             twater  = 0.0
+             water   = 0.0
+             asmc    = 0.0
+             tsmcwlt = 0.0
+             tsmcref = 0.0
+             ma      = 0.0
+             crootd  = 0.0
+             lroot   = 0
+
+             !JE this code block will need to be changed to account for variable
+             ! soil layers in Noah-MP
+
+             sldpth(1) = 0.1         ! Soil layer thicknesses (m)
+             sldpth(2) = 0.3
+             sldpth(3) = 0.6
+             sldpth(4) = 1.0
+             zdpth(1) = sldpth(1)         ! Soil layer depth from top (m)
+             zdpth(2) = sldpth(1) + sldpth(2)
+             zdpth(3) = sldpth(1) + sldpth(2) + sldpth(3)
+             zdpth(4) = sldpth(1) + sldpth(2) + sldpth(3) + sldpth(4)
+
+             smcmax = MAXSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+             smcref = REFSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+             smcwlt = WLTSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+           ! sfctemp = NOAHMP36_struc(n)%noahmp36(t)%sfctmp
+             tempcheck = 273.16 + 2.5
+
+             gid = LIS_surface(n,LIS_rc%lsm_index)%tile(t)%index
+             chhr = nint(24.0*(LIS_domain(n)%grid(gid)%lon/360.0))
+             if((LIS_domain(n)%grid(gid)%lon.lt.0.0).and.&
+                   (abs(mod(LIS_domain(n)%grid(gid)%lon,15.0)).ge.0.0001)) &
+                   chhr = chhr -1
+             lhr = LIS_rc%hr +chhr
+             if(lhr.ge.24) lhr = lhr-24
+             if(lhr.lt.0) lhr = lhr+24
+
+             ltime = real(lhr)+real(LIS_rc%mn)/60.0+real(LIS_rc%ss)/3600.0
+
+             !if((DVEG == 2 .OR. DVEG == 5 .OR. DVEG == 6) .AND. LIS_rc%irrigation_dveg == 1) then
+                !shdfac = shdfac_avg
+
+             !else
+             shdfac =  NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly(LIS_rc%mo)
+             !end if
+
+           ! If we are outside of the irrigation window, set rate to 0
+           ! LB also set irrigation_triggered to false
+             if ((ltime.gt.shift_otimee).or.(ltime.lt.shift_otimes)) then
+               irrigRate(t) = 0.0
+               NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
+             endif
+
+           ! LB: change SM_threshold dpding on innov (WIP)
+             SM_thresh = LIS_rc%irrigation_thresh
+             if (LIS_rc%NEW_option.eq.1) then
+                 if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
+                    SM_thresh = 1 ! forces irrigation
+                 end if
+             end if
+
+
+          ! Calculate vegetation and root depth parameters
+
+          !---------wanshu----add temp check----
+          ! JE This temperature check avoids irrigating at temperatures near or below 0C
+             if((ltime.ge.shift_otimes).and.(ltime.le.shift_otimee).and. &
+                   (sfctemp_avg.gt.tempcheck)) then
+          !------------------------------------
+                vegt = LIS_surface(n,LIS_rc%lsm_index)%tile(t)%vegt
+                !----------------------------------------------------------------------
+                !    Proceed if it is non-forest, non-baresoil, non-urban
+                !----------------------------------------------------------------------
+                if(LIS_rc%lcscheme.eq."UMD") then !UMD
+                   veg_index1 = 6
+                   veg_index2 = 11
+                elseif(LIS_rc%lcscheme.eq."MODIS".or.LIS_rc%lcscheme.eq."IGBPNCEP") &
+                      then
+                   veg_index1 = 6
+                   veg_index2 = 14
+                elseif(LIS_rc%lcscheme.eq."USGS") then !UMD
+                   veg_index1 = 2
+                   veg_index2 = 10
+                else
+                   write(LIS_logunit,*) '[ERR] The landcover scheme ',&
+                         trim(LIS_rc%lcscheme),' is not supported for irrigation '
+                   call LIS_endrun()
+                endif
+
+                if(vegt.ge.veg_index1.and.vegt.le.veg_index2&
+                      .and.vegt.ne.LIS_rc%bareclass.and.&
+                      vegt.ne.LIS_rc%urbanclass) then
+                   if(irrigFrac(t).gt.0) then
+                      ippix = irrigFrac(t)*0.01
+
+                      ! Determine the amount of irrigation to apply if irrigated tile
+                      if( IrrigScale(t).gt.0.0 ) then ! irrigated tile
+          !                if(ippix.gt.0.0) then  ! irrigated tile
+
+                         !shdmin = minval(NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly)
+                         !shdmax = maxval(NOAHMP36_struc(n)%noahmp36(t)%shdfac_monthly)
+                         shdmin =placeshdmin(LIS_surface(n,LIS_rc%lsm_index)%tile(t)%col,     &
+                                                                LIS_surface(n,LIS_rc%lsm_index)%tile(t)%row)
+                         shdmax =placeshdmax(LIS_surface(n,LIS_rc%lsm_index)%tile(t)%col,     &
+                                                 LIS_surface(n,LIS_rc%lsm_index)%tile(t)%row)
+
+                         ! let gsthresh be a function of the range, which means the larger
+                         ! the range is, the higher GVF threshold will be for this grid.
+                         ! JE Gsthresh is a GVF threshold used to identify a growing season for each
+                         ! pixel and allow irrigation during that time
+
+                         !SM Feb 2022 start changes to avoid douple option for the growing
+                         !season: dynamic LAI or climatological GVF
+
+                            if(LIS_rc%growing_season .eq. 1) then!GVF
+
+                               gsthresh = shdmin + &
+                                     (LIS_rc%irrigation_GVFparam1 + LIS_rc%irrigation_GVFparam2*&
+                                     (shdmax-shdmin)) * (shdmax - shdmin)
+                               var=shdfac_avg
+                               shdfac2=shdfac_avg
+
+                            elseif(LIS_rc%growing_season .eq. 0) then
+                               lai= lai_avg
+                               gsthresh=1.0
+                               var=lai
+                               shdfac2=1.0 - exp((-0.5)*lai) !based on Fang et al., 2018
+
+                            endif
+
+
+                         !JE Changes needed to this code block to account for variable soil layers
+                         ! in Noah-MP
+
+                         ! if(shdfac_avg .ge. gsthresh) then !SM Feb 2022 outcommented to allow double option for the growing season
+                            ! crootd = irrigRootdepth(t)*shdfac_avg
+                         if(var .ge. gsthresh) then !SM Feb 2022
+                            crootd = irrigRootdepth(t)*shdfac2 ! end changes SM Feb 2022
+                            if(crootd.gt.0.and.crootd.lt.zdpth(1)) then
+                               lroot = 1
+                               rdpth(1) = crootd
+                            elseif(crootd .ge. zdpth(1).and.crootd .lt. zdpth(2) ) then
+                               lroot = 2
+                               rdpth(1) = sldpth(1)
+                               rdpth(2) = crootd - zdpth(1)
+                            elseif ( crootd.ge.zdpth(2).and.crootd .lt. zdpth(3) ) then
+                               lroot = 3
+                               rdpth(1) = sldpth(1)
+                               rdpth(2) = sldpth(2)
+                               rdpth(3) = crootd - zdpth(2)
+                            elseif ( crootd.ge.zdpth(3).and.crootd .lt. zdpth(4) ) then
+                               lroot = 4
+                               rdpth(1) = sldpth(1)
+                               rdpth(2) = sldpth(2)
+                               rdpth(3) = sldpth(3)
+                               rdpth(4) = crootd - zdpth(3)
+          !                      else
+          !                         print*,'error getting root depth'
+          !                         stop
+                            endif
+
+                         !!!!! SPRINKLER IRRIGATION
+                            if(LIS_rc%irrigation_type.eq."Sprinkler") then
+                               !----------------------------------------------------------------------
+                               !    Set the irrigation rate at start time; keep the value till next day
+                               !    If local time at the tile fall in the irrigation check
+                               !    hour then check the root zone average soil moisture
+                               !----------------------------------------------------------------------
+                               if(ltime.eq.shift_otimes) then !Check moisture availability at otimes only
+                                  !-------------------------------------------------------------
+                                  !     Compute the root zone accumlative soil moisture [mm],
+                                  !     field capacity [mm], and wilting point [mm]
+                                  !-------------------------------------------------------------
+                                  if(lroot.gt.0) then
+                                     do k=1,lroot
+                                        ! LB: Calculate accumulative soil moisture for
+                                        ! ensemble mean.
+                                        asmc = asmc + smc_avg(k)*rdpth(k)*1000.0
+                                        tsmcwlt = tsmcwlt + smcwlt * rdpth(k)*1000.0
+                                        tsmcref = tsmcref + smcref * rdpth(k)*1000.0
+                                     enddo
+                                  !---------------------------------------------------------------
+                                  !     Get the root zone moisture availability to the plant
+                                  !---------------------------------------------------------------
+                                     ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)
+                                     if(ma.le.SM_thresh) then
+                                        do k=1,lroot
+                                              ! Irrigate same amount for all members (based on
+                                              ! unperturbed ensemble member)
+                                           water(k) = (smcref-smc_avg(k))*rdpth(k)*1000.0
+                                           twater = twater + water(k)
+                                        enddo
+
+                                     !-----------------------------------------------------------------------------
+                                     !     Scale the irrigation intensity to the crop % when intensity < crop%.
+                                     !     Expand irrigation for non-crop, non-forest when intensity > crop %
+                                     !     in preference order of grassland first then rest.
+                                     !     *scale is pre-computed for each tile in getirrpmapetc module in a way
+                                     !     that is transparent to every tile irrigated or non-irrigated
+                                     !-----------------------------------------------------------------------------
+                                        twater1 = twater
+                                        twater = twater * irrigScale(t)
+
+                                     !-----------------------------------------------------------------------------
+                                     !     Apply efficiency correction
+                                     !-----------------------------------------------------------------------------
+                                        twater2 = twater
+                                        twater = twater*(100.0/(100.0-efcor))
+                                     !-----------------------------------------------------------------------------
+                                     !     Compute irrigation rate
+                                        irrigRate(t) = twater/(irrhr*3600.0)
+                                        
+                                     ! LB WIP always set to false after irrigation module
+                                        if (ltime.ge.shift_otimee) then
+                                            NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
+                                        endif
+
+                                     endif
+                                  endif
+                               endif
+                               !!!!! DRIP IRRIGATION (NOT CURRENTLY IMPLEMENTED)
+                            elseif(LIS_rc%irrigation_type.eq."Drip") then
+                               ! Need to get crop coefficient so that we can caculate unstressed Transp
+                               !       RC=RSMIN/(XLAI*RCS*RCT*RCQ)
+                               !       PCIRR=(RR+DELTA)/(RR*(1.+RC*CH)+DELTA)
+                               ! CALL TRANSP (with PCIRR)
+
+                               ! Then add enough water to get from actual Transp to unstressed Transp
+                               twater = 0.0
+                                  !-----------------------------------------------------------------------------
+                                  !     Apply efficiency correction
+                                  !-----------------------------------------------------------------------------
+                                  twater2 = twater
+                                  twater = twater*(100.0/(100.0-efcor))
+                                  !-----------------------------------------------------------------------------
+                                  !     Compute irrigation rate
+                                  !-----------------------------------------------------------------------------
+                                  irrigRate(t) = twater  ! for drip calculation, twater is a rate [kg/m2/s]
+                                  NOAHMP36_struc(n)%noahmp36(t)%smc(1) = &
+                                  NOAHMP36_struc(n)%noahmp36(t)%smc(1) + (twater-twater2)/(sldpth(1)*1000.0) !! check this with Sujay
+
+                               !!!!! FLOOD IRRIGATION (NOT CURRENTLY CORRECTED FOR DA)
+                                  elseif(LIS_rc%irrigation_type.eq."Flood") then
+                                  !-------------------------------------------------------------
+                                  !     Compute the root zone accumlative soil moisture [mm],
+                                  !     field capacity [mm], and wilting point [mm]
+                                  !-------------------------------------------------------------
+                                  if(lroot.gt.0) then
+                                     do k=1,lroot
+                                        asmc = asmc + NOAHMP36_struc(n)%noahmp36(t)%smc(k)*&
+                                              rdpth(k)*1000.0
+                                        tsmcwlt = tsmcwlt + smcwlt * rdpth(k)*1000.0
+                                        tsmcref = tsmcref + smcref * rdpth(k)*1000.0
+                                     enddo
+                                  !---------------------------------------------------------------
+                                  !     Get the root zone moisture availability to the plant
+                                  !---------------------------------------------------------------
+          !                            ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)   ! Original
+                                     ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)/IrrigScale(t) ! BZ added IrrigScale
+
+                                     if( ma .le. SM_thresh ) then
+                                        do l = 1, LIS_rc%irrigation_mxsoildpth
+                                           if( l == 1 ) then
+                                           twater = (SMCMAX - NOAHMP36_struc(n)%noahmp36(t)%smc(l))*sldpth(l)*1000.0
+                                           else
+                                           ! BZ modification 4/2/2015 to saturate entire column and apply ippix
+                                           twater = twater + (smcmax - NOAHMP36_struc(n)%noahmp36(t)%smc(l))*sldpth(l)*1000.0
+          !                                 twater = twater + (smcmax - noah33_struc(n)%noah(t)%smc(2))*sldpth(2)*1000.0
+          !                                 twater = twater + (smcmax - noah33_struc(n)%noah(t)%smc(3))*sldpth(3)*1000.0
+          !                                 twater = twater + (smcmax - noah33_struc(n)%noah(t)%smc(4))*sldpth(4)*1000.0
+                                           endif
+                                        end do
+
+                                        !-----------------------------------------------------------------------------
+                                        !     Scale the irrigation intensity to the crop % when intensity < crop%.
+                                        !     Expand irrigation for non-crop, non-forest when intensity > crop %
+                                        !     in preference order of grassland first then rest.
+                                        !     *scale is pre-computed for each tile in getirrpmapetc module in a way
+                                        !     that is transparent to every tile irrigated or non-irrigated
+                                        !-----------------------------------------------------------------------------
+                                        twater1 = twater
+                                        twater = twater * irrigScale(t)
+                                        !-----------------------------------------------------------------------------
+                                        !     Apply efficiency correction
+                                        !-----------------------------------------------------------------------------
+                                        twater2 = twater
+                                        twater = twater*(100.0/(100.0-efcor))
+                                        !-----------------------------------------------------------------------------
+                                        !     Compute irrigation rate
+                                        !-----------------------------------------------------------------------------
+                                        irrigRate(t) = twater/LIS_rc%ts
+          !                              noah33_struc(n)%noah(t)%smc(1) = smcmax   ! Original
+
+                                     ! BZ modification 4/2/2015 to account for ippix and all soil layers:
+                                        do l = 1, LIS_rc%irrigation_mxsoildpth
+                                           NOAHMP36_struc(n)%noahmp36(t)%smc(l) = IrrigScale(t)*smcmax + &
+                                                          (1-IrrigScale(t))*NOAHMP36_struc(n)%noahmp36(t)%smc(l)
+                                        end do
+          !                              noah33_struc(n)%noah(t)%smc(1) = IrrigScale(t)*smcmax + &
+          !                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(1)
+          !                              noah33_struc(n)%noah(t)%smc(2) = IrrigScale(t)*smcmax + &
+          !                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(2)
+          !                              noah33_struc(n)%noah(t)%smc(3) = IrrigScale(t)*smcmax + &
+          !                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(3)
+          !                              noah33_struc(n)%noah(t)%smc(4) = IrrigScale(t)*smcmax + &
+          !                                             (1-IrrigScale(t))*noah33_struc(n)%noah(t)%smc(4)
+                                     endif
+                                  endif
+
+                               endif
+
+                            endif
+                         end if
+                      end if
+                   end if
+
+                   ! Remove irrigated water from groundwater
+                   !JE Add in flag to turn groundwater abstraction on/off
+                   if (LIS_rc%irrigation_GWabstraction.eq.1) then
+                      AWS = NOAHMP36_struc(n)%noahmp36(t)%wa
+                      Dtime = NOAHMP36_struc(n)%dt
+                      NOAHMP36_struc(n)%noahmp36(t)%wa = AWS - irrigRate(t)*Dtime
+                   end if
+                end if
+             enddo
+          enddo
+    end if
   end subroutine noahmp36_getirrigationstates

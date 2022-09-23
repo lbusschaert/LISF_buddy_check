@@ -101,6 +101,20 @@ contains
        allocate(LIS_irrig_state(LIS_rc%nnest))
        allocate(LIS_irrig_struc(LIS_rc%nnest))
 
+     !LB Use NEW method
+       LIS_rc%NEW_option = 0
+       call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%NEW_option,&
+            label="NEW option:", default=0, rc=rc)
+       write(LIS_logunit,*) "[INFO] NEW option:  ",&
+                             LIS_rc%NEW_option
+
+     !LB Threshold for irrigation [dB]
+       call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%thresh4irr,&
+            label="thresh4irr:", rc=rc)
+       call LIS_verify(rc,"thresh4irr: not defined. Exit run...")
+       write(LIS_logunit,*) "[INFO] thresh4irr:  ",&
+                             LIS_rc%thresh4irr
+
      ! Frequency with which irrigation field is written out:
        call ESMF_ConfigGetAttribute(LIS_config,time,&
             label="Irrigation output interval:",rc=rc)

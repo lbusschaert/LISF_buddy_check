@@ -258,6 +258,13 @@ subroutine LIS_readConfig()
 
   call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%zterp_correction, &
        label="Enable new zterp correction (met forcing):",default=.false.,rc=rc)
+
+ ! Use NEW method LB WIP
+   LIS_rc%shiftP_MERRA2 = 0
+   call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%shiftP_MERRA2,&
+        label="Shifted precipitation time window (MERRA2):", default=0, rc=rc)
+   write(LIS_logunit,*) "[INFO] Shifted precipitation time windows (MERRA2) [years]:  ",&
+                         LIS_rc%shiftP_MERRA2
   
 
   allocate(LIS_rc%nts(LIS_rc%nnest))

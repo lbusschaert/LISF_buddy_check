@@ -163,7 +163,8 @@ subroutine get_merra2(n, findex)
 !EOP
   integer           :: order
   integer           :: ferror
-  character(len=LIS_CONST_PATH_LEN) :: slvname, flxname, lfoname, radname
+  character(len=LIS_CONST_PATH_LEN) :: slvname, flxname, flxname_p, &
+                                       lfoname, radname
   integer           :: c, r,kk
   integer           :: yr1, mo1, da1, hr1, mn1, ss1, doy1
   integer           :: yr2, mo2, da2, hr2, mn2, ss2, doy2
@@ -306,9 +307,9 @@ subroutine get_merra2(n, findex)
      order = 1
      do kk= merra2_struc(n)%st_iterid, merra2_struc(n)%en_iterid
         call merra2files(n,kk,findex,merra2_struc(n)%merra2dir, yr1, mo1, da1, &
-             slvname, flxname, lfoname, radname)
+             slvname, flxname, flxname_p, lfoname, radname)
         call read_merra2(n, order, mo1, &
-             findex, slvname, flxname, lfoname, radname,&
+             findex, slvname, flxname, flxname_p, lfoname, radname,&
              merra2_struc(n)%merraforc1(kk,:,:,:), ferror)
      enddo
   endif
@@ -324,9 +325,9 @@ subroutine get_merra2(n, findex)
      order = 2
      do kk= merra2_struc(n)%st_iterid, merra2_struc(n)%en_iterid
         call merra2files(n,kk,findex,merra2_struc(n)%merra2dir, yr2, mo2, da2, &
-             slvname, flxname, lfoname, radname)
+             slvname, flxname, flxname_p, lfoname, radname)
         call read_merra2(n, order, mo2,&
-             findex, slvname, flxname, lfoname, radname, &
+             findex, slvname, flxname, flxname_p, lfoname, radname, &
              merra2_struc(n)%merraforc2(kk,:,:,:), ferror)
      enddo
   endif
@@ -437,7 +438,8 @@ end subroutine get_merra2
 ! \label{merra2files}
 !
 ! !INTERFACE:
-subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, lfoname, radname)
+subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, &
+                       flxname_p, lfoname, radname)
 
 ! !USES:
   use LIS_coreMod
@@ -454,6 +456,7 @@ subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, l
   integer, intent(in)           :: yr,mo,da
   character(len=*), intent(out) :: slvname
   character(len=*), intent(out) :: flxname
+  character(len=*), intent(out) :: flxname_p
   character(len=*), intent(out) :: lfoname
   character(len=*), intent(out) :: radname
 
@@ -475,6 +478,8 @@ subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, l
 !   name of the timestamped single level file
 !  \item[flxname]
 !   name of the timestamped flux file
+!  \item[flxname_p]
+!   name of the timestamped flux file for precipitation
 !  \item[lfoname]
 !   name of the timestamped land surface forcings file
 !  \item[radname]
@@ -483,18 +488,19 @@ subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, l
 !
 !EOP
 
-  character*4  :: cyear
+  character*4  :: cyear, cyear_p
   character*2  :: cmonth
-  character*8  :: cdate
-  character*10 :: prefix
+  character*8  :: cdate, cdate_p
+  character*10 :: prefix, prefix_p
   character*17 :: slv_spec, flx_spec, lfo_spec, rad_spec
-  character*20 :: dir
+  character*20 :: dir, dir_p
   integer      :: seed
   real         :: rand
   integer      :: hr, mn, ss
   real*8       :: time
   integer      :: doy
   real         :: gmt
+  integer      :: shiftP
 
   hr = 0 
   mn = 0 
@@ -504,10 +510,23 @@ subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, l
 !  call LIS_tick(time,doy,gmt,yr,mo,da,hr,mn,ss,&
 !       -5*86400.0)
 
+  !LB get shift
+  shiftP = LIS_rc%shiftP_MERRA2
+
   if(LIS_rc%forecastMode.eq.0) then !hindcast run
      write(unit=cyear, fmt='(i4.4)') yr
+     write(unit=cyear_p, fmt='(i4.4)') yr+shiftP !LB for SE
      write(unit=cmonth,fmt='(i2.2)') mo
      write(unit=cdate, fmt='(i4.4,i2.2,i2.2)') yr,mo,da
+     write(unit=cdate_p, fmt='(i4.4,i2.2,i2.2)') yr+shiftP,mo,da
+
+     if((mod(yr,4).eq.0.and.mod(yr,100).ne.0) &     !correct for leap year
+         .or.(mod(yr,400).eq.0))then             !correct for y2k
+         ! Check for leap year, if yes set date to 28 feb
+        if (mo==2 .and. da==29) then
+            write(unit=cdate_p, fmt='(i4.4,i2.2,i2.2)') yr+shiftP,mo,28
+        endif
+     endif
      
      if (yr==1979 .and. mo>=2) then
         prefix = 'MERRA2_100'
@@ -526,6 +545,25 @@ subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, l
         write(LIS_logunit,*) '[ERR] Supported years are from 1979-2-1 through ...'
         call LIS_endrun()
      endif
+
+     ! LB: repeat for flux file
+     if (yr+shiftP==1979 .and. mo>=2) then
+        prefix_p = 'MERRA2_100'
+     elseif (yr+shiftP>1979 .and. yr+shiftP<=1991) then
+        prefix_p = 'MERRA2_100'
+     elseif (yr+shiftP>= 1992 .and. yr+shiftP <= 2000 ) then   ! Since 2000 is last full year
+        prefix_p = 'MERRA2_200'
+        !  elseif ( yr >= 2001 .and. yr <= 2009 ) then
+     elseif ( yr+shiftP >= 2001 .and. yr+shiftP <= 2010 ) then   ! Corrected for longitudinal shift of data
+        prefix_p = 'MERRA2_300'
+        !  elseif ( yr-10 >= 2010 ) then
+     elseif ( yr+shiftP >= 2011 ) then
+        prefix_p = 'MERRA2_400'
+     else
+        write(LIS_logunit,*) '[ERR] merra2files: date out of range (PREC)'
+        write(LIS_logunit,*) '[ERR] Supported years are from 1979-2-1 through ... (PREC)'
+        call LIS_endrun()
+     endif
      
      slv_spec = '.tavg1_2d_slv_Nx.'
      flx_spec = '.tavg1_2d_flx_Nx.'
@@ -533,13 +571,17 @@ subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, l
      rad_spec = '.tavg1_2d_rad_Nx.'
      
      dir = prefix//'/Y'//cyear//'/M'//cmonth
+     dir_p = prefix_p//'/Y'//cyear_p//'/M'//cmonth
      
      ! Single level fields:
      slvname = trim(merra2dir)//'/'//dir//'/'//prefix//slv_spec//cdate//'.nc4'
      
      ! Flux fields:
      flxname = trim(merra2dir)//'/'//dir//'/'//prefix//flx_spec//cdate//'.nc4'
-     
+
+     !LB: flx file for P (synthetic experiment)
+     flxname_p = trim(merra2dir)//'/'//dir_p//'/'//prefix_p//flx_spec//cdate_p//'.nc4'
+
      ! Land surface forcing level:
      lfoname = trim(merra2dir)//'/'//dir//'/'//prefix//lfo_spec//cdate//'.nc4'
      

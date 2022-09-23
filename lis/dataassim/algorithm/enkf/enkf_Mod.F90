@@ -40,6 +40,7 @@ module enkf_Mod
   use LIS_historyMod
   use LIS_timeMgrMod
   use LIS_constantsMod, only : LIS_CONST_PATH_LEN
+  use NoahMP36_lsmMod, only : NOAHMP36_struc !LB
 #if (defined USE_NETCDF3 || defined USE_NETCDF4)
   use netcdf
 #endif
@@ -250,6 +251,8 @@ contains
     real,         allocatable         :: lons(:), lats(:)
     real,         allocatable         :: state_lat(:), state_lon(:)
 
+    real                              :: Dinnov !LB
+
 
 !----------------------------------------------------------------------------
 !  Check if the observation state is updated or not. If it is updated,
@@ -443,8 +446,22 @@ contains
                 enkf_struc(n,k)%innov(i) = LIS_rc%udef
                 enkf_struc(n,k)%forecast_var(i) = LIS_rc%udef
              endif
+             !LB: store innov in NoahMP structure (for t0 and t1) and check for
+             !irrigation
+             do v=1,LIS_rc%nensem(n)
+                NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt0 = &
+                                        NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt1
+                NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt1 = &
+                                        enkf_struc(n,k)%innov(i)
+                Dinnov = NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt1 &
+                                - NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt0
+                if((Dinnov.ge.LIS_rc%thresh4irr).and.(Dinnov.le.10)) then
+                   NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered = .true.
+                endif
+             enddo
           enddo
        endif
+
 !----------------------------------------------------------------------------
 ! Updating State vector and increments state
 !----------------------------------------------------------------------------
