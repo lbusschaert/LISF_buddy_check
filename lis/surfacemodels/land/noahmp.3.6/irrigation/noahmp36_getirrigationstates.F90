@@ -595,7 +595,9 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
              SM_thresh = LIS_rc%irrigation_thresh
              if (LIS_rc%NEW_option.eq.1) then
                  if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
-                    SM_thresh = 1 ! forces irrigation
+                    SM_thresh = LIS_rc%irrigation_thresh ! forces irrigation
+                 else
+                    SM_thresh = -1
                  end if
              end if
 
@@ -657,8 +659,8 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                                gsthresh = shdmin + &
                                      (LIS_rc%irrigation_GVFparam1 + LIS_rc%irrigation_GVFparam2*&
                                      (shdmax-shdmin)) * (shdmax - shdmin)
-                               var=shdfac_avg
-                               shdfac2=shdfac_avg
+                               var=shdfac
+                               shdfac2=shdfac
 
                             elseif(LIS_rc%growing_season .eq. 0) then
                                lai= lai_avg
