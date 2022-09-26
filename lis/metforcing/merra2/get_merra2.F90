@@ -523,7 +523,7 @@ subroutine merra2files(n, kk, findex, merra2dir, yr, mo, da, slvname, flxname, &
      if((mod(yr,4).eq.0.and.mod(yr,100).ne.0) &     !correct for leap year
          .or.(mod(yr,400).eq.0))then             !correct for y2k
          ! Check for leap year, if yes set date to 28 feb
-        if (mo==2 .and. da==29) then
+        if ((mo==2 .and. da==29).and.(shiftP==0)) then
             write(unit=cdate_p, fmt='(i4.4,i2.2,i2.2)') yr+shiftP,mo,28
         endif
      endif
