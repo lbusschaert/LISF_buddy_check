@@ -441,9 +441,13 @@ module NoahMP36_module
 !   \item[MRP]
 !     microbial respiration parameter. unit: umol co2 /kg c/ s
 !   \item[irrigation_triggered]
-!     flag for irrigation application (logical) LB WIP
-!   \item[innovt0 & innovt1]
-!     innovations at t-1 and t. unit: dB
+!     flag for irrigation application (logical) !LB
+!   \item[irrigation_prevday]
+!     flag for irrigation application of previous day (logical) !LB
+!   \item[innov]
+!     innovations of previous days (user-defined window length). unit: dB
+!   \item[prev_stdev]
+!     standard deviation of previous day. unit: dB
 !   \end{description}
 !
 ! !REVISION HISTORY:
@@ -685,7 +689,9 @@ module NoahMP36_module
      real               :: smcdry ! SY: Not used by NoahMP3.6 from REDPRM, but read in from table
 
      logical            :: irrigation_triggered !LB
-     real				:: innovt0, innovt1 !LB
+     logical            :: irrigation_prevday !LB
+     real, pointer      :: innov(:) !LB
+     real               :: prev_stdev !LB
 
   end type noahmp36dec
 end module NoahMP36_module

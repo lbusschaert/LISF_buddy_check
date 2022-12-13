@@ -262,6 +262,13 @@ subroutine NoahMP36_readcrd()
             call LIS_verify(rc, 'Noah-MP.3.6 soil layer thickness: not defined')
         enddo
     enddo
+
+    !LB window size to compute standard deviation
+    call ESMF_ConfigFindLabel(LIS_config, "Noah-MP.3.6 window size standard deviation:", rc = rc)
+    do n=1, LIS_rc%nnest
+        call ESMF_ConfigGetAttribute(LIS_config, NOAHMP36_struc(n)%win_size, rc=rc)
+        call LIS_verify(rc, "Noah-MP.3.6 window size standard deviation: not defined")
+    enddo
  
     ! urban land cover type index
     do n=1, LIS_rc%nnest

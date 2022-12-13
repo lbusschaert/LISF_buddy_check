@@ -230,6 +230,7 @@ module NoahMP36_lsmMod
         integer            :: sc_idx
         integer            :: iz0tlnd
         !real               :: zlvl
+        integer            :: win_size !LB
         type(NoahMP36dec), pointer :: noahmp36(:)
     end type NoahMP36_type_dec
 
@@ -292,6 +293,9 @@ contains
                 allocate(NOAHMP36_struc(n)%noahmp36(t)%zss( NOAHMP36_struc(n)%nsoil + NOAHMP36_struc(n)%nsnow))
                 allocate(NOAHMP36_struc(n)%noahmp36(t)%snowice(NOAHMP36_struc(n)%nsnow))
                 allocate(NOAHMP36_struc(n)%noahmp36(t)%snowliq(NOAHMP36_struc(n)%nsnow))
+
+                !LB
+                allocate(NOAHMP36_struc(n)%noahmp36(t)%innov(NOAHMP36_struc(n)%win_size+1))
             enddo
 !            ! allocate memory for intiali state variables
 !            allocate(NOAHMP36_struc(n)%init_stc( NOAHMP36_struc(n)%nsoil))
@@ -311,6 +315,11 @@ contains
                 NOAHMP36_struc(n)%noahmp36(t)%qair = 0.0
                 NOAHMP36_struc(n)%noahmp36(t)%wind_e = 0.0
                 NOAHMP36_struc(n)%noahmp36(t)%wind_n = 0.0
+
+            !LB set all elements to -9999.0
+                NOAHMP36_struc(n)%noahmp36(t)%innov(:) = LIS_rc%udef
+                NOAHMP36_struc(n)%noahmp36(t)%prev_stdev = LIS_rc%udef
+
                 !Added by Chandana Gangodagamage
 #if WRF_HYDRO
                 NOAHMP36_struc(n)%noahmp36(t)%sfcheadrt = 0.0
@@ -329,8 +338,7 @@ contains
 
                 !LB
                 NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
-                NOAHMP36_struc(n)%noahmp36(t)%innovt0 = -9999.0
-                NOAHMP36_struc(n)%noahmp36(t)%innovt1 = -9999.0
+                NOAHMP36_struc(n)%noahmp36(t)%irrigation_prevday = .false.
             enddo ! end of tile (t) loop
 !------------------------------------------------------------------------
 ! Model timestep Alarm

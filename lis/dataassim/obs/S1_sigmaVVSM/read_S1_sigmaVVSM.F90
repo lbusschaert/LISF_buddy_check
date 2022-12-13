@@ -26,6 +26,7 @@ subroutine read_S1_sigmaVVSM(n,k,OBS_State,OBS_Pert_State)
   use LIS_DAobservationsMod
   use LIS_pluginIndices, only : LIS_S1_sigmaVVSM_obsId
   use S1_sigmaVVSM_Mod, only : S1_sigma_struc
+  use NoahMP36_lsmMod, only : NOAHMP36_struc !LB
 
   implicit none
 ! !ARGUMENTS: 
@@ -55,7 +56,7 @@ subroutine read_S1_sigmaVVSM(n,k,OBS_State,OBS_Pert_State)
   logical                       :: data_upd, file_exists
   logical                       :: dataflag(LIS_npes)
   logical                       :: dataflag_local
-  integer                       :: c,r, p, t
+  integer                       :: c,r, p, t, i, v !LB
   character*100                 :: obsdir
   character*80                  :: S1_filename
   integer                       :: ftn
@@ -92,7 +93,27 @@ subroutine read_S1_sigmaVVSM(n,k,OBS_State,OBS_Pert_State)
      S1_sigma_struc(n)%sigmatime = -1
 
      call S1_sigmaVVSM_filename(S1_filename,obsdir,&
-          LIS_rc%yr,LIS_rc%mo,LIS_rc%da)       
+          LIS_rc%yr,LIS_rc%mo,LIS_rc%da)
+
+     !LB Shift innov and define the last element as NAN
+     ! Will be replaced in case there is an observation
+     do i=1,(LIS_rc%obs_lnr(k)*LIS_rc%obs_lnc(k)) 
+        ! For later: check if other possibility in LIS_rc
+        do v=1,LIS_rc%nensem(n)
+             ! Check if irrigation during previous day
+             ! If yes, exclude extreme innov
+             if (NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_prevday) then
+                 NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov(NOAHMP36_struc(n)%win_size+1) = &
+                                                                         LIS_rc%udef
+             endif
+             NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov = &
+                    cshift(NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov, 1)
+
+             NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov(NOAHMP36_struc(n)%win_size+1) = LIS_rc%udef
+             ! Reset irrigation marker
+             NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_prevday = .false.
+        enddo
+     enddo
 
      inquire(file=S1_filename,exist=file_exists)
      if(file_exists) then 

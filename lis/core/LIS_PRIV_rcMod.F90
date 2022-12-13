@@ -960,7 +960,7 @@ module LIS_PRIV_rcMod
      integer                :: irrigation_GWabstraction !JE 
 
      integer                :: NEW_option !LB
-     real                   :: thresh4irr !LB
+     real                   :: factor !LB
      integer                :: shiftP_MERRA2 !LB
 
      logical, allocatable       :: LSM_DAinst_valid(:)

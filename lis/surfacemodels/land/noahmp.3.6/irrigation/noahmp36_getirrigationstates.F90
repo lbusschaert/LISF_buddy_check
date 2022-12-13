@@ -726,9 +726,10 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                                   !---------------------------------------------------------------
                                      ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)
                                      if(ma.le.SM_thresh) then
+                                        ! mark irrigation
+                                        NOAHMP36_struc(n)%noahmp36(t)%irrigation_prevday = .true.
                                         do k=1,lroot
-                                              ! Irrigate same amount for all members (based on
-                                              ! unperturbed ensemble member)
+                                              ! Irrigate same amount for all members
                                            water(k) = (smcref-smc_avg(k))*rdpth(k)*1000.0
                                            twater = twater + water(k)
                                         enddo

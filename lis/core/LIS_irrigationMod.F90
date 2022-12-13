@@ -108,12 +108,12 @@ contains
        write(LIS_logunit,*) "[INFO] NEW option:  ",&
                              LIS_rc%NEW_option
 
-     !LB Threshold for irrigation [dB]
-       call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%thresh4irr,&
-            label="thresh4irr:", rc=rc)
-       call LIS_verify(rc,"thresh4irr: not defined. Exit run...")
-       write(LIS_logunit,*) "[INFO] thresh4irr:  ",&
-                             LIS_rc%thresh4irr
+     !LB Factor to multiply innov stdev to trigger irrigation [-]
+       call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%factor,&
+            label="Factor:", rc=rc)
+       call LIS_verify(rc,"Factor: not defined. Exit run...")
+       write(LIS_logunit,*) "[INFO] Factor:  ",&
+                             LIS_rc%factor
 
      ! Frequency with which irrigation field is written out:
        call ESMF_ConfigGetAttribute(LIS_config,time,&

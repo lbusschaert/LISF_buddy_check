@@ -252,6 +252,9 @@ contains
     real,         allocatable         :: state_lat(:), state_lon(:)
 
     real                              :: Dinnov !LB
+    integer                           :: N_innov !LB
+    real,         allocatable         :: innov_nonan(:) !LB
+    real                              :: stdev !LB
 
 
 !----------------------------------------------------------------------------
@@ -446,19 +449,42 @@ contains
                 enkf_struc(n,k)%innov(i) = LIS_rc%udef
                 enkf_struc(n,k)%forecast_var(i) = LIS_rc%udef
              endif
-             !LB: store innov in NoahMP structure (for t0 and t1) and check for
-             !irrigation
-             do v=1,LIS_rc%nensem(n)
-                NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt0 = &
-                                        NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt1
-                NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt1 = &
-                                        enkf_struc(n,k)%innov(i)
-                Dinnov = NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt1 &
-                                - NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innovt0
-                if((Dinnov.ge.LIS_rc%thresh4irr).and.(Dinnov.le.10)) then
-                   NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered = .true.
-                endif
-             enddo
+             !LB store innov in NoahMP structure (user-defined window length) 
+             !and check for irrigation
+             !LB Check if innov is not nan
+             if(enkf_struc(n,k)%innov(i).ne.LIS_rc%udef) then
+                 do v=1,LIS_rc%nensem(n)
+                    ! Count number of innovations in window
+                    N_innov = count(NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov/=LIS_rc%udef)
+                    if (N_innov.ge.1) then
+                        allocate(innov_nonan(N_innov))  
+                        innov_nonan = pack(NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov, &
+                                            NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov/=LIS_rc%udef)
+
+                        ! Calculate Dinnov
+                        Dinnov = enkf_struc(n,k)%innov(i) - innov_nonan(N_innov)
+
+                        ! Calculate stdev only if N>5, otherwise keep previous stdev
+                        if (N_innov.ge.5) then
+                            stdev = sqrt(sum((innov_nonan(1:N_innov) &
+                                 -(sum(innov_nonan(1:N_innov))/real(N_innov)))**2)/real(N_innov))
+                        else
+                            stdev = NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%prev_stdev
+                        end if
+                        deallocate(innov_nonan)
+                        NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%prev_stdev = stdev
+
+                        ! Check if Dinnov is larger than factor*stdev
+                        if((Dinnov.ge.LIS_rc%factor*stdev).and.(stdev.gt.0)) then
+                           ! irrigate
+                           NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered = .true.
+                        endif
+                    endif
+                    ! Replace last element by innov
+                    NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov(NOAHMP36_struc(n)%win_size+1) = &
+                                            enkf_struc(n,k)%innov(i)
+                 enddo
+             endif
           enddo
        endif
 
