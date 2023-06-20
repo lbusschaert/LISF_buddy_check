@@ -21,7 +21,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
   use LIS_coreMod
   use LIS_logMod
   use NoahMP36_lsmMod
-  use MODULE_SF_NOAHMPLSM_36, only: MAXSMC, REFSMC, WLTSMC
+  use MODULE_SF_NOAHMPLSM_36, only: MAXSMC, REFSMC, WLTSMC, BB, SATPSI
   use LIS_vegDataMod, only: LIS_read_shdmin, LIS_read_shdmax
 ! use MODULE_SF_NOAHMPLSM_36, only: SMCMAX, PSISAT, DKSAT, BEXP
  
@@ -68,7 +68,8 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 !                              with perturbation bias correction option (based
 !                              on Wanshu Nie's implementation in NoahMP4).
 !
-! Aug 2022: Louise Busschaert; new option for irrigation WIP
+! Aug 2022: Louise Busschaert; new option for irrigation
+! June 2023: Louise Busschaert; adapted soil parameters for irrigation
 !EOP
   implicit none
   ! Sprinkler parameters
@@ -127,8 +128,10 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
   real                 :: smc_avg(nsoil)
   real                 :: lai_avg
 
-!-------------------------!LB for new option----------------------------------
+!-------------------------!LB for new options----------------------------------
   real                 :: SM_thresh
+  real				   :: bb_param
+  real				   :: satpsi_param	
 
   call ESMF_StateGet(irrigState, "Irrigation rate",irrigRateField,rc=rc)
   call LIS_verify(rc,'ESMF_StateGet failed for Irrigation rate')    
@@ -180,7 +183,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
      otimee = otimefs + irrhrf
   endif
   
- if(LIS_rc%pert_bias_corr.eq.0) then 
+ if(LIS_rc%pert_bias_corr.ne.1) then 
         do t=1,LIS_rc%npatch(n,LIS_rc%lsm_index)
 
          timestep = NOAHMP36_struc(n)%dt
@@ -213,9 +216,22 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
          zdpth(3) = sldpth(1) + sldpth(2) + sldpth(3)
          zdpth(4) = sldpth(1) + sldpth(2) + sldpth(3) + sldpth(4)
 
-         smcmax = MAXSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype) 
-         smcref = REFSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
-         smcwlt = WLTSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+         smcmax = MAXSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+
+         ! LB adapated soil parameters for irrigation (Campbell, 1974)
+         ! Relation: h/hs=(smc/smcmax)**(-B) 
+         ! B parameter (Campbell) [-]
+         bb_param = BB(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+         ! hs: saturation soil matric potential [m]
+         satpsi_param = SATPSI(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+
+         ! smcref (field capacity) at pF 2.5 (33 kPa)
+         smcref = smcmax*((33*10.19716)/(satpsi_param*100))**(-1/bb_param)
+
+         ! smcwlt (wilting point) at pF 4.2 (1500 kPa)
+         smcwlt = smcmax*((1500*10.19716)/(satpsi_param*100))**(-1/bb_param)   
+         ! smcref = REFSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+         ! smcwlt = WLTSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
          sfctemp = NOAHMP36_struc(n)%noahmp36(t)%sfctmp
          tempcheck = 273.16 + 2.5
 
@@ -561,10 +577,24 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
              zdpth(4) = sldpth(1) + sldpth(2) + sldpth(3) + sldpth(4)
 
              smcmax = MAXSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
-             smcref = REFSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
-             smcwlt = WLTSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
-           ! sfctemp = NOAHMP36_struc(n)%noahmp36(t)%sfctmp
-             tempcheck = 273.16 + 2.5
+
+			 ! LB adapated soil parameters for irrigation (Campbell, 1974)
+			 ! Relation: h/hs=(smc/smcmax)**(-B) 
+			 ! B parameter (Campbell) [-]
+			 bb_param = BB(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+			 ! hs: saturation soil matric potential [m]
+			 satpsi_param = SATPSI(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+
+			 ! smcref (field capacity) at pF 2.5 (33 kPa)
+			 smcref = smcmax*((33*10.19716)/(satpsi_param*100))**(-1/bb_param)
+
+			 ! smcwlt (wilting point) at pF 4.2 (1500 kPa)
+			 smcwlt = smcmax*((1500*10.19716)/(satpsi_param*100))**(-1/bb_param)   
+			 ! smcref = REFSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+			 ! smcwlt = WLTSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+			 sfctemp = NOAHMP36_struc(n)%noahmp36(t)%sfctmp
+			 tempcheck = 273.16 + 2.5
+
 
              gid = LIS_surface(n,LIS_rc%lsm_index)%tile(t)%index
              chhr = nint(24.0*(LIS_domain(n)%grid(gid)%lon/360.0))
@@ -753,7 +783,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                                      !     Compute irrigation rate
                                         irrigRate(t) = twater/(irrhr*3600.0)
                                         
-                                     ! LB WIP always set to false after irrigation module
+                                     ! LB always set to false after irrigation module
                                         if (ltime.ge.shift_otimee) then
                                             NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
                                         endif
