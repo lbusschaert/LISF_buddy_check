@@ -440,8 +440,10 @@ module NoahMP36_module
 !     wood to non-wood ratio
 !   \item[MRP]
 !     microbial respiration parameter. unit: umol co2 /kg c/ s
-!   \item[irrigation_triggered]
-!     flag for irrigation application (logical) !LB
+!   \item[irrigation_triggered1]
+!     flag for irrigation application (logical) strong outlier !LB
+!   \item[irrigation_triggered2]
+!     flag for irrigation application (logical) soft outlier !LB
 !   \item[irrigation_prevday]
 !     flag for irrigation application of previous day (logical) !LB
 !   \item[innov]
@@ -688,7 +690,8 @@ module NoahMP36_module
      !-------------------------------------------------------------------------
      real               :: smcdry ! SY: Not used by NoahMP3.6 from REDPRM, but read in from table
 
-     logical            :: irrigation_triggered !LB
+     logical            :: irrigation_triggered1 !LB
+     logical            :: irrigation_triggered2 !LB
      logical            :: irrigation_prevday !LB
      real, pointer      :: innov(:) !LB
      real               :: prev_stdev !LB

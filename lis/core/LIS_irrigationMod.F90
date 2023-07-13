@@ -108,15 +108,6 @@ contains
        write(LIS_logunit,*) "[INFO] NEW option:  ",&
                              LIS_rc%NEW_option
 
-       if(LIS_rc%NEW_option.eq.1) then
-        !LB Factor to multiply innov stdev to trigger irrigation [-]
-          call ESMF_ConfigGetAttribute(LIS_config,LIS_rc%factor,&
-               label="Factor:", rc=rc)
-          call LIS_verify(rc,"Factor: not defined. Exit run...")
-          write(LIS_logunit,*) "[INFO] Factor:  ",&
-                                LIS_rc%factor
-       endif
-
      ! Frequency with which irrigation field is written out:
        call ESMF_ConfigGetAttribute(LIS_config,time,&
             label="Irrigation output interval:",rc=rc)

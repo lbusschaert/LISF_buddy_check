@@ -475,9 +475,12 @@ contains
                         NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%prev_stdev = stdev
 
                         ! Check if Dinnov is larger than factor*stdev
-                        if((Dinnov.ge.LIS_rc%factor*stdev).and.(stdev.gt.0)) then
-                           ! irrigate
-                           NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered = .true.
+                        if((Dinnov.ge.2.5*stdev).and.(stdev.gt.0)) then
+                           ! irrigate if MA < MA_irr + 0.1
+                           NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered1 = .true.
+                        elseif((Dinnov.ge.stdev).and.(stdev.gt.0)) then
+                           ! irrigate if MA < MA_irr
+                           NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered2 = .true.
                         endif
                     endif
                     ! Replace last element by innov
