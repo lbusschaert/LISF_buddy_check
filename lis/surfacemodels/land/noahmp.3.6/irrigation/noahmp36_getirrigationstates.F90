@@ -618,14 +618,17 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
            ! LB also set irrigation_triggered to false
              if ((ltime.gt.shift_otimee).or.(ltime.lt.shift_otimes)) then
                irrigRate(t) = 0.0
-               NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
+               NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered1 = .false.
+               NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered2 = .false.
              endif
 
            ! LB: change SM_threshold dpding on innov (WIP)
              SM_thresh = LIS_rc%irrigation_thresh
              if (LIS_rc%NEW_option.eq.1) then
-                 if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
-                    SM_thresh = LIS_rc%irrigation_thresh ! forces irrigation
+                 if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered1) then
+                    SM_thresh = LIS_rc%irrigation_thresh + 0.1 ! if MA < MA_irr + 0.1
+                 elseif (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered2) then
+                    SM_thresh = LIS_rc%irrigation_thresh ! if MA < MA_irr
                  else
                     SM_thresh = -1
                  end if
@@ -785,7 +788,8 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                                         
                                      ! LB always set to false after irrigation module
                                         if (ltime.ge.shift_otimee) then
-                                            NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
+                                            NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered1 = .false.
+                                            NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered2 = .false.
                                         endif
 
                                      endif

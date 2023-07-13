@@ -337,7 +337,8 @@ contains
                 NOAHMP36_struc(n)%noahmp36(t)%fldfrc = 0.0
 
                 !LB
-                NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
+                NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered1 = .false.
+                NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered2 = .false.
                 NOAHMP36_struc(n)%noahmp36(t)%irrigation_prevday = .false.
             enddo ! end of tile (t) loop
 !------------------------------------------------------------------------
