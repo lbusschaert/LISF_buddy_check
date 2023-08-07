@@ -111,9 +111,8 @@ subroutine noahmp36_updatesoilm(n, LSM_State, LSM_Incr_State)
        "ESMF_FieldGet: Soil Moisture Layer 4 failed in noahmp36_updatesoilm")
 
   do t=1,LIS_rc%npatch(n,LIS_rc%lsm_index)
-    !LB: apply increments when there is no irrigation that day
-     if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered1.or.&
-         NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered2) then
+    !LB: exclude increment for irrigated day
+     if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
          soilm1(t) = soilm1(t)
          soilm2(t) = soilm2(t)
          soilm3(t) = soilm3(t)

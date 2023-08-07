@@ -73,8 +73,8 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 !EOP
   implicit none
   ! Sprinkler parameters
-  real, parameter      :: otimess = 6.0 ! local trigger check start time [hour]
-  real, parameter      :: irrhrs = 4.   ! duration of irrigation hours 
+  real, parameter      :: otimess = 5.75 ! local trigger check start time [hour] !LB changed 
+  real, parameter      :: irrhrs = 4.25   ! duration of irrigation hours !LB changed
   ! Drip parameters (not currently implemented)
   real, parameter      :: otimeds = 6.0 ! local trigger check start time [hour]
   real, parameter      :: irrhrd = 12.0   ! duration of irrigation hours 
@@ -578,22 +578,22 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
 
              smcmax = MAXSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
 
-			 ! LB adapated soil parameters for irrigation (Campbell, 1974)
-			 ! Relation: h/hs=(smc/smcmax)**(-B) 
-			 ! B parameter (Campbell) [-]
-			 bb_param = BB(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
-			 ! hs: saturation soil matric potential [m]
-			 satpsi_param = SATPSI(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+             ! LB adapated soil parameters for irrigation (Campbell, 1974)
+             ! Relation: h/hs=(smc/smcmax)**(-B) 
+             ! B parameter (Campbell) [-]
+             bb_param = BB(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+             ! hs: saturation soil matric potential [m]
+             satpsi_param = SATPSI(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
 
-			 ! smcref (field capacity) at pF 2.5 (33 kPa)
-			 smcref = smcmax*((33*10.19716)/(satpsi_param*100))**(-1/bb_param)
+             ! smcref (field capacity) at pF 2.5 (33 kPa)
+             smcref = smcmax*((33*10.19716)/(satpsi_param*100))**(-1/bb_param)
 
-			 ! smcwlt (wilting point) at pF 4.2 (1500 kPa)
-			 smcwlt = smcmax*((1500*10.19716)/(satpsi_param*100))**(-1/bb_param)   
-			 ! smcref = REFSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
-			 ! smcwlt = WLTSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
-			 sfctemp = NOAHMP36_struc(n)%noahmp36(t)%sfctmp
-			 tempcheck = 273.16 + 2.5
+             ! smcwlt (wilting point) at pF 4.2 (1500 kPa)
+             smcwlt = smcmax*((1500*10.19716)/(satpsi_param*100))**(-1/bb_param)   
+             ! smcref = REFSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+             ! smcwlt = WLTSMC(NOAHMP36_struc(n)%noahmp36(t)%soiltype)
+             sfctemp = NOAHMP36_struc(n)%noahmp36(t)%sfctmp
+             tempcheck = 273.16 + 2.5
 
 
              gid = LIS_surface(n,LIS_rc%lsm_index)%tile(t)%index
@@ -618,19 +618,18 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
            ! LB also set irrigation_triggered to false
              if ((ltime.gt.shift_otimee).or.(ltime.lt.shift_otimes)) then
                irrigRate(t) = 0.0
-               NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered1 = .false.
-               NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered2 = .false.
+               NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
              endif
 
            ! LB: change SM_threshold dpding on innov (WIP)
              SM_thresh = LIS_rc%irrigation_thresh
              if (LIS_rc%NEW_option.eq.1) then
-                 if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered1) then
-                    SM_thresh = LIS_rc%irrigation_thresh + 0.1 ! if MA < MA_irr + 0.1
-                 elseif (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered2) then
-                    SM_thresh = LIS_rc%irrigation_thresh ! if MA < MA_irr
+                 ! Reset MA to udef
+                 NOAHMP36_struc(n)%noahmp36(t)%ma = LIS_rc%udef
+                 if (NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered) then
+                    SM_thresh = 1 ! --> IRRIGATE
                  else
-                    SM_thresh = -1
+                    SM_thresh = -1 ! --> BLOCK IRRIGATION
                  end if
              end if
 
@@ -741,7 +740,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                                !    If local time at the tile fall in the irrigation check
                                !    hour then check the root zone average soil moisture
                                !----------------------------------------------------------------------
-                               if(ltime.eq.shift_otimes) then !Check moisture availability at otimes only
+                               if((ltime.eq.6).or.(ltime.eq.6.25)) then !Check moisture availability at otimes only !LB
                                   !-------------------------------------------------------------
                                   !     Compute the root zone accumlative soil moisture [mm],
                                   !     field capacity [mm], and wilting point [mm]
@@ -758,9 +757,9 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                                   !     Get the root zone moisture availability to the plant
                                   !---------------------------------------------------------------
                                      ma = (asmc-tsmcwlt) /(tsmcref - tsmcwlt)
+                                     !LB Store MA for check in enkf_Mod.F90
+                                     NOAHMP36_struc(n)%noahmp36(t)%MA = ma
                                      if(ma.le.SM_thresh) then
-                                        ! mark irrigation
-                                        NOAHMP36_struc(n)%noahmp36(t)%irrigation_prevday = .true.
                                         do k=1,lroot
                                               ! Irrigate same amount for all members
                                            water(k) = (smcref-smc_avg(k))*rdpth(k)*1000.0
@@ -788,8 +787,7 @@ subroutine noahmp36_getirrigationstates(n,irrigState)
                                         
                                      ! LB always set to false after irrigation module
                                         if (ltime.ge.shift_otimee) then
-                                            NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered1 = .false.
-                                            NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered2 = .false.
+                                            NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
                                         endif
 
                                      endif

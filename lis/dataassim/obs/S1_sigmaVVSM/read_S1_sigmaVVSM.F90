@@ -98,20 +98,10 @@ subroutine read_S1_sigmaVVSM(n,k,OBS_State,OBS_Pert_State)
      !LB Shift innov and define the last element as NAN
      ! Will be replaced in case there is an observation
      do i=1,(LIS_rc%obs_lnr(k)*LIS_rc%obs_lnc(k)) 
-        ! For later: check if other possibility in LIS_rc
         do v=1,LIS_rc%nensem(n)
-             ! Check if irrigation during previous day
-             ! If yes, exclude extreme innov
-             if (NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_prevday) then
-                 NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov(NOAHMP36_struc(n)%win_size+1) = &
-                                                                         LIS_rc%udef
-             endif
              NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov = &
                     cshift(NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov, 1)
-
              NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov(NOAHMP36_struc(n)%win_size+1) = LIS_rc%udef
-             ! Reset irrigation marker
-             NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_prevday = .false.
         enddo
      enddo
 

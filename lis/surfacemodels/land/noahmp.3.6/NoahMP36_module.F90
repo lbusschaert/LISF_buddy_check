@@ -690,11 +690,10 @@ module NoahMP36_module
      !-------------------------------------------------------------------------
      real               :: smcdry ! SY: Not used by NoahMP3.6 from REDPRM, but read in from table
 
-     logical            :: irrigation_triggered1 !LB
-     logical            :: irrigation_triggered2 !LB
-     logical            :: irrigation_prevday !LB
+     logical            :: irrigation_triggered !LB
      real, pointer      :: innov(:) !LB
      real               :: prev_stdev !LB
+     real               :: MA !LB
 
   end type noahmp36dec
 end module NoahMP36_module

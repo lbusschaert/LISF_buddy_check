@@ -319,6 +319,7 @@ contains
             !LB set all elements to -9999.0
                 NOAHMP36_struc(n)%noahmp36(t)%innov(:) = LIS_rc%udef
                 NOAHMP36_struc(n)%noahmp36(t)%prev_stdev = LIS_rc%udef
+                NOAHMP36_struc(n)%noahmp36(t)%MA = LIS_rc%udef
 
                 !Added by Chandana Gangodagamage
 #if WRF_HYDRO
@@ -337,9 +338,7 @@ contains
                 NOAHMP36_struc(n)%noahmp36(t)%fldfrc = 0.0
 
                 !LB
-                NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered1 = .false.
-                NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered2 = .false.
-                NOAHMP36_struc(n)%noahmp36(t)%irrigation_prevday = .false.
+                NOAHMP36_struc(n)%noahmp36(t)%irrigation_triggered = .false.
             enddo ! end of tile (t) loop
 !------------------------------------------------------------------------
 ! Model timestep Alarm

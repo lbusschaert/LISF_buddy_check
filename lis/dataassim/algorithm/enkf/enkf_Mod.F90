@@ -255,6 +255,7 @@ contains
     integer                           :: N_innov !LB
     real,         allocatable         :: innov_nonan(:) !LB
     real                              :: stdev !LB
+    real                              :: MA_mult !LB
 
 
 !----------------------------------------------------------------------------
@@ -474,18 +475,25 @@ contains
                         deallocate(innov_nonan)
                         NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%prev_stdev = stdev
 
-                        ! Check if Dinnov is larger than factor*stdev
+                        ! Add MA multiplier to Dinnov
+                        if ((NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%MA.ne.LIS_rc%udef).and.&
+                           (NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%MA.lt.1)) then
+                            MA_mult = (1-NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%MA) &
+                                          /((1-LIS_rc%irrigation_thresh)/2)
+                        else
+                            MA_mult = 0
+                        endif
+                        Dinnov = Dinnov * MA_mult
+                        ! Check if Dinnov is larger than 2.5*stdev (=outlier)
                         if((Dinnov.ge.2.5*stdev).and.(stdev.gt.0)) then
-                           ! irrigate if MA < MA_irr + 0.1
-                           NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered1 = .true.
-                        elseif((Dinnov.ge.stdev).and.(stdev.gt.0)) then
-                           ! irrigate if MA < MA_irr
-                           NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered2 = .true.
+                           NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered = .true.
                         endif
                     endif
-                    ! Replace last element by innov
-                    NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov(NOAHMP36_struc(n)%win_size+1) = &
-                                            enkf_struc(n,k)%innov(i)
+                    if (.not.NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered) then
+                    ! Replace last element by innov (no outlier)
+                     NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%innov(NOAHMP36_struc(n)%win_size+1) = &
+                                enkf_struc(n,k)%innov(i)
+                    endif
                  enddo
              endif
           enddo
