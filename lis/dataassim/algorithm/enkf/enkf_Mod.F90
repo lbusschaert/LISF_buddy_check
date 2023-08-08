@@ -479,7 +479,7 @@ contains
                         if ((NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%MA.ne.LIS_rc%udef).and.&
                            (NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%MA.lt.1)) then
                             MA_mult = (1-NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%MA) &
-                                          /((1-LIS_rc%irrigation_thresh)/2)
+                                          /(1-LIS_rc%irrigation_thresh)
                         else
                             MA_mult = 0
                         endif
