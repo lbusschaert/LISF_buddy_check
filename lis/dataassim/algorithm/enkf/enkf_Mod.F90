@@ -484,8 +484,8 @@ contains
                             MA_mult = 0
                         endif
                         Dinnov = Dinnov * MA_mult
-                        ! Check if Dinnov is larger than 2.5*stdev (=outlier)
-                        if((Dinnov.ge.2.5*stdev).and.(stdev.gt.0)) then
+                        ! Check if Dinnov is larger than 2*stdev (=outlier)
+                        if((Dinnov.ge.2*stdev).and.(stdev.gt.0)) then
                            NOAHMP36_struc(n)%noahmp36((i-1)*24+v)%irrigation_triggered = .true.
                         endif
                     endif
